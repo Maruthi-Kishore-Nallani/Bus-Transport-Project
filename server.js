@@ -45,6 +45,8 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { getDistance, isPointWithinRadius, getDistanceFromLine } = require('geolib');
 const https = require('https');
 const fs = require('fs');
@@ -53,16 +55,108 @@ require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 
 const app = express();
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const isProduction = NODE_ENV === 'production';
+
+// ===== ENVIRONMENT VARIABLE VALIDATION =====
+const requiredEnvVars = ['ADMIN_JWT_SECRET', 'DATABASE_URL', 'MAIN_ADMIN_EMAIL', 'MAIN_ADMIN_PASSWORD'];
+if (isProduction) {
+  const missing = requiredEnvVars.filter(v => !process.env[v]);
+  if (missing.length > 0) {
+    console.error(`❌ Missing required environment variables: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+}
+
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.ADMIN_JWT_SECRET || 'dev-secret-change-me';
+const JWT_SECRET = process.env.ADMIN_JWT_SECRET || (isProduction ? null : 'dev-secret-change-me');
 const MAIN_ADMIN_EMAIL = process.env.MAIN_ADMIN_EMAIL || '';
 const MAIN_ADMIN_PASSWORD = process.env.MAIN_ADMIN_PASSWORD || '';
+
+if (isProduction && !JWT_SECRET) {
+  console.error('❌ ADMIN_JWT_SECRET is required in production');
+  process.exit(1);
+}
+
 const prisma = new PrismaClient();
 
-// Middleware
-app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+// ===== SECURITY MIDDLEWARE =====
+// Helmet for security headers
+app.use(helmet({
+  contentSecurityPolicy: isProduction ? undefined : false, // Disable in dev for easier debugging
+  crossOriginEmbedderPolicy: false
+}));
+
+// CORS configuration
+const corsOptions = {
+  origin: isProduction 
+    ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : false)
+    : true, // Allow all in development
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: isProduction ? 100 : 1000, // Limit each IP to 100 requests per windowMs in production
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', limiter);
+
+// Stricter rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5, // 5 requests per 15 minutes
+  message: 'Too many authentication attempts, please try again later.',
+  skipSuccessfulRequests: true,
+});
+app.use('/api/admin/login', authLimiter);
+app.use('/api/admin/signup-request', authLimiter);
+
+// Body parser with size limits
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+
+// ===== LOGGING UTILITY (Production-safe) =====
+const logger = {
+  info: (msg, ...args) => {
+    if (!isProduction) console.log(`[INFO] ${msg}`, ...args);
+  },
+  error: (msg, error) => {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    // Don't log full error stack in production to avoid exposing internals
+    if (isProduction) {
+      console.error(`[ERROR] ${msg}: ${errorMsg}`);
+    } else {
+      console.error(`[ERROR] ${msg}:`, error);
+    }
+  },
+  warn: (msg, ...args) => {
+    console.warn(`[WARN] ${msg}`, ...args);
+  }
+};
+
+// ===== INPUT VALIDATION HELPERS =====
+function sanitizeString(str, maxLength = 500) {
+  if (typeof str !== 'string') return '';
+  return str.trim().substring(0, maxLength).replace(/[<>]/g, '');
+}
+
+function validateEmail(email) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+
+function validateCoordinates(lat, lng) {
+  return typeof lat === 'number' && typeof lng === 'number' &&
+         !isNaN(lat) && !isNaN(lng) &&
+         lat >= -90 && lat <= 90 &&
+         lng >= -180 && lng <= 180;
+}
 
 // ---- Simple settings storage (JSON file) ----
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
@@ -80,7 +174,7 @@ function readSettingsFile() {
       return { ...DEFAULT_SETTINGS, ...parsed, contact: { ...DEFAULT_SETTINGS.contact, ...(parsed.contact || {}) } };
     }
   } catch (e) {
-    console.error('Failed to read settings file, using defaults:', e);
+    logger.error('Failed to read settings file, using defaults', e);
   }
   return { ...DEFAULT_SETTINGS };
 }
@@ -90,7 +184,7 @@ function writeSettingsFile(settings) {
     fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
     return true;
   } catch (e) {
-    console.error('Failed to write settings file:', e);
+    logger.error('Failed to write settings file', e);
     return false;
   }
 }
@@ -419,7 +513,7 @@ function isPathIntersectsCircle(userLocation, path, radiusMeters) {
       }
 
     } catch (err) {
-      console.error(`Error checking routes for bus ${b.number}:`, err);
+      logger.error(`Error checking routes for bus ${b.number}`, err);
       
       // Fallback: check if any individual stops are within the circle
       const fallbackCount = [...morningStops, ...eveningStops].reduce((acc, s) => {
@@ -499,9 +593,10 @@ app.post('/api/admin/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
     const token = jwt.sign({ role: 'admin', email: admin.email, id: admin.id }, JWT_SECRET, { expiresIn: '8h' });
+    logger.info(`Admin login successful: ${admin.email}`);
     res.json({ success: true, token });
   } catch (e) {
-    console.error('Admin login failed:', e);
+    logger.error('Admin login failed', e);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
@@ -549,9 +644,10 @@ app.post('/api/admin/signup-request', async (req, res) => {
     const hashed = bcrypt.hashSync(password, 10);
     pending.push({ name, email, password: hashed, createdAt: new Date().toISOString() });
     writePendingAdmins(pending);
+    logger.info(`Admin signup request received: ${email}`);
     res.json({ success: true, message: 'Signup request submitted. Await approval by main admin.' });
   } catch (e) {
-    console.error('Signup request failed:', e);
+    logger.error('Signup request failed', e);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
@@ -578,8 +674,9 @@ app.post('/api/admin/requests/:email/approve', requireAdmin, async (req, res) =>
   try {
     // create admin in DB
     await prisma.admin.create({ data: { email: reqObj.email, password: reqObj.password } });
+    logger.info(`Admin approved: ${reqObj.email}`);
   } catch (e) {
-    console.error('Failed creating admin:', e);
+    logger.error('Failed creating admin', e);
     return res.status(500).json({ success: false, message: 'Failed to create admin' });
   }
   pending.splice(idx, 1);
@@ -631,7 +728,7 @@ app.get('/api/admin/logs', requireAdmin, async (req, res) => {
 
     res.json({ success: true, logs: enriched });
   } catch (e) {
-    console.error('Failed to fetch logs:', e);
+    logger.error('Failed to fetch logs', e);
     res.status(500).json({ success: false, message: 'Failed to fetch logs' });
   }
 });
@@ -683,9 +780,10 @@ app.post('/api/admin/buses', requireAdmin, async (req, res) => {
       }
     }
 
+    logger.info(`Bus added: ${number}`);
     res.json({ success: true, message: 'Bus added successfully', bus });
   } catch (e) {
-    console.error('Failed to add bus:', e);
+    logger.error('Failed to add bus', e);
     res.status(500).json({ success: false, message: 'Failed to add bus' });
   }
 });
@@ -702,7 +800,7 @@ app.get('/api/admin/buses', requireAdmin, async (req, res) => {
     });
     res.json({ success: true, buses });
   } catch (e) {
-    console.error('Failed to fetch buses:', e);
+    logger.error('Failed to fetch buses', e);
     res.status(500).json({ success: false, message: 'Failed to fetch buses' });
   }
 });
@@ -761,9 +859,10 @@ app.put('/api/admin/buses/:busNumber', requireAdmin, async (req, res) => {
       }
     }
 
+    logger.info(`Bus updated: ${busNumber}`);
     res.json({ success: true, message: 'Bus updated successfully', bus: updatedBus });
   } catch (e) {
-    console.error('Failed to update bus:', e);
+    logger.error('Failed to update bus', e);
     res.status(500).json({ success: false, message: 'Failed to update bus' });
   }
 });
@@ -784,9 +883,10 @@ app.delete('/api/admin/buses/:busNumber', requireAdmin, async (req, res) => {
     // Delete the bus
     await prisma.bus.delete({ where: { number: busNumber } });
 
+    logger.info(`Bus deleted: ${busNumber}`);
     res.json({ success: true, message: 'Bus deleted successfully' });
   } catch (e) {
-    console.error('Failed to delete bus:', e);
+    logger.error('Failed to delete bus', e);
     res.status(500).json({ success: false, message: 'Failed to delete bus' });
   }
 });
@@ -816,50 +916,56 @@ app.post('/api/check-availability', async (req, res) => {
     }
 
     // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!validateEmail(email)) {
       return res.status(400).json({
         success: false,
         message: 'Please provide a valid email address'
       });
     }
+    
+    // Sanitize inputs
+    const sanitizedEmail = sanitizeString(email, 100);
+    const sanitizedLocation = sanitizeString(location, 500);
 
     // STEP 1: Parse location (coordinates or location name)
-    console.log('\n🚀 NEW BUS AVAILABILITY CHECK');
-    console.log(`📧 Email: ${email}`);
-    console.log(`📍 Input location: ${location}`);
+    logger.info('Bus availability check requested');
     
     let userLocation;
-    if (typeof location === 'string') {
+    if (typeof sanitizedLocation === 'string') {
       // Check if it's coordinates (lat,lng format) - handle with or without spaces
-      const coordMatch = location.match(/^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/);
+      const coordMatch = sanitizedLocation.match(/^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/);
       if (coordMatch) {
         const lat = parseFloat(coordMatch[1]);
         const lng = parseFloat(coordMatch[2]);
-        if (isNaN(lat) || isNaN(lng)) {
+        if (!validateCoordinates(lat, lng)) {
           return res.status(400).json({
             success: false,
             message: 'Invalid coordinate format. Please provide coordinates as "lat,lng"'
           });
         }
         userLocation = { lat, lng };
-        console.log(`✅ Using coordinates directly: ${lat},${lng}`);
+        logger.info(`Using coordinates: ${lat.toFixed(4)},${lng.toFixed(4)}`);
       } else {
         // STEP 2: It's a location name, geocode it
-        console.log(`🔍 Geocoding location name: "${location}"...`);
+        logger.info(`Geocoding location: ${sanitizedLocation.substring(0, 50)}...`);
         try {
-          const geocodedLocation = await geocodeLocation(location);
+          const geocodedLocation = await geocodeLocation(sanitizedLocation);
           userLocation = { lat: geocodedLocation.lat, lng: geocodedLocation.lng };
-          console.log(`✅ Geocoded to: ${userLocation.lat},${userLocation.lng}`);
-          console.log(`   Address: ${geocodedLocation.formatted_address}`);
+          logger.info(`Geocoded to: ${userLocation.lat.toFixed(4)},${userLocation.lng.toFixed(4)}`);
         } catch (error) {
           return res.status(400).json({
             success: false,
-            message: `Could not find location "${location}". Please provide coordinates as "lat,lng" or a valid location name.`
+            message: `Could not find location. Please provide coordinates as "lat,lng" or a valid location name.`
           });
         }
       }
     } else if (typeof location === 'object' && location.lat && location.lng) {
+      if (!validateCoordinates(location.lat, location.lng)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid coordinates. Latitude must be between -90 and 90, longitude between -180 and 180.'
+        });
+      }
       userLocation = location;
     } else {
       return res.status(400).json({
@@ -875,15 +981,15 @@ app.post('/api/check-availability', async (req, res) => {
     try {
       await prisma.availabilityLog.create({
         data: {
-          email: email,
-          location: typeof location === 'string' ? location : `${userLocation.lat},${userLocation.lng}`,
+          email: sanitizedEmail,
+          location: typeof sanitizedLocation === 'string' ? sanitizedLocation : `${userLocation.lat},${userLocation.lng}`,
           lat: userLocation.lat,
           lng: userLocation.lng,
           status: nearbyBuses.length > 0 ? 'AVAILABLE' : 'UNAVAILABLE'
         }
       });
     } catch (logError) {
-      console.error('Failed to log availability check:', logError);
+      logger.error('Failed to log availability check', logError);
       // Don't fail the request if logging fails
     }
 
@@ -904,7 +1010,7 @@ app.post('/api/check-availability', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error checking bus availability:', error);
+    logger.error('Error checking bus availability', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'
@@ -958,16 +1064,31 @@ app.get('/api/routes', async (req, res) => {
 
     res.json({ success: true, routes });
   } catch (e) {
-    console.error(e);
+    logger.error('Failed to load routes', e);
     res.status(500).json({ success: false, message: 'Failed to load routes' });
   }
 });
 
+// ===== ERROR HANDLING MIDDLEWARE =====
+app.use((err, req, res, next) => {
+  logger.error('Unhandled error', err);
+  res.status(500).json({
+    success: false,
+    message: isProduction ? 'Internal server error' : err.message
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: 'Route not found' });
+});
+
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚌 Bus API Server running on port ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🔍 Check availability: POST http://localhost:${PORT}/api/check-availability`);
+  logger.info(`Server running on port ${PORT} (${NODE_ENV} mode)`);
+  if (!isProduction) {
+    console.log(`📍 Health check: http://localhost:${PORT}/api/health`);
+  }
 });
 
 module.exports = app;
