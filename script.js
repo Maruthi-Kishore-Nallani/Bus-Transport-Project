@@ -84,7 +84,7 @@ async function loadBusesFromDatabase() {
 const container = document.getElementById("busContainer");
 
 // Google Maps (interactive) support
-const GOOGLE_MAPS_API_KEY = "AIzaSyCayecig5sMFkmWnQnV_2qJiU2_gvmGe2k";
+const GOOGLE_MAPS_API_KEY = "";
 let googleMapsLoadPromise = null;
   
 function loadGoogleMapsApi() {
