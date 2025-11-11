@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Backend API for the bus availability checker",
   "main": "server.js",
+  "type": "module", 
   "scripts": {
     "db:migrate": "prisma migrate dev",
     "db:seed": "node prisma/seed.js",
