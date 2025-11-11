@@ -103,16 +103,7 @@ app.get('/api/settings', (req, res) => {
 });
 
 // Protected update settings
-app.put('/api/admin/settings', (req, res) => {
-  const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  if (!token) return res.status(401).json({ success: false, message: 'Missing token' });
-  try {
-    const payload = require('jsonwebtoken').verify(token, JWT_SECRET);
-    if (payload.role !== 'admin') throw new Error('Not admin');
-  } catch (e) {
-    return res.status(401).json({ success: false, message: 'Invalid token' });
-  }
+app.put('/api/admin/settings', requireAdmin, (req, res) => {
   const { siteTitle, organizationName, contact } = req.body || {};
   const next = {
     siteTitle: (siteTitle ?? siteSettings.siteTitle ?? DEFAULT_SETTINGS.siteTitle).toString(),

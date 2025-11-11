@@ -11,7 +11,7 @@ npm install
 ```env
 PORT=3000
 ADMIN_JWT_SECRET=change-this
-DATABASE_URL=\"file:./prisma/dev.db\"
+DATABASE_URL=\"postgresql://postgres:password@localhost:5432/bus_transport\"
 GOOGLE_MAPS_API_KEY=your-key
 GEOCODE_COUNTRY=IN
 GEOCODE_REGION=in
@@ -40,4 +40,4 @@ Open `page.html` (user) and `admin.html` (admin login). New admins can request a
 
 ## Notes
 - Requires a valid Google Maps API key for geocoding/reverse-geocoding.
-- Data is stored in SQLite at `prisma/dev.db` (via Prisma).
+- Data is stored in PostgreSQL (configure via `DATABASE_URL` in `.env`).

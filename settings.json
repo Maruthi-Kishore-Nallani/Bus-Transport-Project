@@ -1,10 +1,9 @@
 {
   "siteTitle": "BUS TRANSPORT DETAILS",
-  "organizationName": "Your Institution",
+  "organizationName": "",
   "contact": {
-    "address": "Address line",
-    "phone": "+91 00000 00000",
-    "email": "support@example.com"
+    "address": "",
+    "phone": "",
+    "email": ""
   }
 }
-
