@@ -1,0 +1,6 @@
+node_modules
+.env
+/generated/prisma
+prisma/dev.db
+.DS_Store
+pending_admins.json
