@@ -1,1089 +1,970 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Dashboard - Bus Transport</title>
-  <link rel="stylesheet" href="styles.css">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f4f8; color: #1a202c; }
+// Bus data will be loaded from database API
+let buses = [];
+// Map of real busNumber -> display number (1..N)
+let busNumberToDisplay = new Map();
+const API_BASE = window.location.origin;
 
-     .admin-shell { max-width: 1400px; margin: 100px auto 40px; padding: 0 20px 40px; }
-     
-     /* Header Section */
-     .admin-top { 
-       display:flex; 
-       align-items:center; 
-       justify-content:space-between; 
-       margin-bottom: 24px; 
-       background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-       padding: 20px 24px;
-       border-radius: 12px;
-       color: white;
-       box-shadow: 0 4px 20px rgba(30, 64, 175, 0.3);
-     }
-    .admin-title { font-size: 1.8rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
-    .admin-title::before { content: '🚌'; font-size: 1.5rem; }
-    .logout { 
-      background: rgba(255,255,255,0.2); 
-      border: 1px solid rgba(255,255,255,0.3); 
-      padding: 10px 18px; 
-      border-radius: 8px; 
-      cursor:pointer; 
-      color: white;
-      font-weight: 600;
-      transition: all 0.3s ease;
-    }
-    .logout:hover { background: rgba(255,255,255,0.3); transform: translateY(-2px); }
-
-         /* Navigation Tabs */
-     .admin-nav { display:flex; gap:8px; margin-bottom: 20px; background: white; padding: 8px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-     .admin-tab { 
-       padding:12px 24px; 
-       border: none;
-       background: transparent;
-       color: #64748b;
-       border-radius:8px; 
-       cursor:pointer;
-       font-weight: 600;
-       transition: all 0.3s ease;
-       position: relative;
-     }
-     .admin-tab.active { 
-       background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-       color: #fff;
-       box-shadow: 0 4px 12px rgba(30, 64, 175, 0.4);
-     }
-     .admin-tab:not(.active):hover {
-       background: #f0f4f8;
-       color: #1a202c;
-     }
-
-    /* Card Styles */
-    .card { 
-      background: #ffffff; 
-      border: 1px solid #e7eef5; 
-      border-radius: 16px; 
-      padding: 24px; 
-      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-      transition: all 0.3s ease;
-    }
-    .card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
-         .section-title { 
-       font-weight: 700; 
-       font-size: 1.3rem;
-       margin-bottom: 16px; 
-       color: #1e40af;
-       display: flex;
-       align-items: center;
-       gap: 8px;
-     }
-
-    /* Dashboard Table */
-    table.admin-table { 
-      width:100%; 
-      border-collapse: collapse; 
-      margin-top: 8px;
-    }
-    .admin-table th, .admin-table td { 
-      padding:14px 16px; 
-      border-bottom: 1px solid #e7eef5; 
-      text-align:left; 
-    }
-         .admin-table th { 
-       background: linear-gradient(to right, #eff6ff, #dbeafe);
-       font-weight: 700;
-       color: #1e40af;
-       font-size: 0.9rem;
-       text-transform: uppercase;
-       letter-spacing: 0.5px;
-     }
-     .admin-table tr:hover { background: #f0f4f8; }
-     .badge { 
-       padding: 6px 12px; 
-       border-radius: 20px; 
-       font-size: 0.85rem; 
-       font-weight: 600;
-       display: inline-block;
-     }
-     .badge-ok { background: #dbeafe; color: #1e40af; }
-     .badge-no { background: #fecaca; color: #991b1b; }
-
-    /* Form Styles */
-    .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
-    .grid-3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:16px; }
-         .form-input { 
-       width:100%; 
-       padding:12px 16px; 
-       border: 2px solid #cbd5e1; 
-       border-radius: 10px; 
-       font-size: 0.95rem;
-       transition: all 0.3s ease;
-     }
-     .form-input:focus {
-       outline: none;
-       border-color: #3b82f6;
-       box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-     }
-     .form-group { display: flex; flex-direction: column; gap: 8px; }
-     .form-group label { font-weight: 600; color: #1e40af; font-size: 0.9rem; }
-    .btn { 
-      padding:12px 20px; 
-      border-radius: 10px; 
-      border: none;
-      font-weight: 600;
-      cursor:pointer; 
-      transition: all 0.3s ease;
-      font-size: 0.95rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-         .btn.primary { 
-       background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-       color: #fff;
-       box-shadow: 0 4px 12px rgba(30, 64, 175, 0.4);
-     }
-     .btn.primary:hover { 
-       transform: translateY(-2px);
-       box-shadow: 0 6px 16px rgba(30, 64, 175, 0.5);
-     }
-     .btn.danger { 
-       background: #dc2626; 
-       color: #fff;
-       box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
-     }
-     .btn.danger:hover { 
-       background: #991b1b;
-       transform: translateY(-2px);
-     }
-     .btn:not(.primary):not(.danger) {
-       background: #f0f4f8;
-       color: #1e40af;
-       border: 2px solid #cbd5e1;
-     }
-     .btn:not(.primary):not(.danger):hover {
-       background: #dbeafe;
-       border-color: #93c5fd;
-     }
-    .small { font-size:0.9rem; color:#64748b; }
-    .loading { text-align:center; padding:40px; color:#94a3b8; font-size: 1.1rem; }
-         .error { 
-       color: #991b1b; 
-       background: #fee2e2; 
-       padding: 14px 18px; 
-       border-radius: 10px; 
-       margin: 10px 0;
-       border-left: 4px solid #dc2626;
-       display: flex;
-       align-items: center;
-       gap: 8px;
-     }
-     .error::before { content: '⚠️'; font-size: 1.2rem; }
-     .success { 
-       color: #1e40af; 
-       background: #dbeafe; 
-       padding: 14px 18px; 
-       border-radius: 10px; 
-       margin: 10px 0;
-       border-left: 4px solid #3b82f6;
-       display: flex;
-       align-items: center;
-       gap: 8px;
-     }
-     .success::before { content: '✓'; font-weight: bold; }
-    .list { display:flex; flex-direction:column; gap:12px; margin-top:16px; }
-    .item { 
-      display:flex; 
-      align-items:center; 
-      justify-content:space-between; 
-      padding:16px 18px; 
-      border: 2px solid #e7eef5; 
-      border-radius: 12px;
-      background: white;
-      transition: all 0.3s ease;
-    }
-    .item:hover { border-color: #cbd5e1; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-
-    /* Modal Styles */
-         .item.dragging {
-       opacity: 0.5;
-       background: #dbeafe;
-       transform: scale(0.95);
-     }
-     .item.drag-over {
-       border-top: 3px solid #3b82f6;
-       border-color: #3b82f6;
-     }
-
-    .modal { 
-      display: none; 
-      position: fixed; 
-      z-index: 1000; 
-      left: 0; 
-      top: 0; 
-      width: 100%; 
-      height: 100%; 
-      overflow: auto; 
-      background-color: rgba(0,0,0,0.6);
-      backdrop-filter: blur(4px);
-    }
-    .modal-content { 
-      background-color: #ffffff; 
-      margin: 3% auto; 
-      padding: 0; 
-      border: none;
-      width: 90%; 
-      max-width: 1000px; 
-      border-radius: 20px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      animation: modalSlideIn 0.3s ease-out;
-    }
-    @keyframes modalSlideIn {
-      from { opacity: 0; transform: translateY(-30px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-         .modal-header { 
-       display: flex; 
-       justify-content: space-between; 
-       align-items: center; 
-       padding: 24px 28px; 
-       background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-       border-radius: 20px 20px 0 0;
-     }
-    .modal-header h2 { 
-      margin: 0; 
-      font-size: 1.6rem; 
-      color: white;
-      font-weight: 700;
-    }
-    .modal-close { 
-      color: white; 
-      font-size: 32px; 
-      font-weight: bold; 
-      cursor: pointer;
-      width: 40px;
-      height: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.2);
-      transition: all 0.3s ease;
-    }
-    .modal-close:hover { 
-      background: rgba(255, 255, 255, 0.3);
-      transform: rotate(90deg);
-    }
-    .modal-body { 
-      padding: 28px; 
-      max-height: calc(90vh - 100px);
-      overflow-y: auto;
-    }
+// Load bus data from database API
+async function loadBusesFromDatabase() {
+  try {
+    // Show loading state
+    container.innerHTML = '<div class="loading">Loading bus data...</div>';
+    const container = document.getElementById("busContainer");
+    if (!container) return; // Prevent errors if script loads on pages without busContainer
     
-    /* Route Editor Tabs */
-         .route-editor-tabs { 
-       display: flex; 
-       gap: 12px; 
-       margin-bottom: 24px; 
-       border-bottom: 2px solid #cbd5e1;
-       padding-bottom: 0;
-     }
-     .route-editor-tab { 
-       padding: 14px 24px; 
-       border: none;
-       background: transparent;
-       cursor: pointer; 
-       border-bottom: 3px solid transparent;
-       font-weight: 600;
-       color: #64748b;
-       transition: all 0.3s ease;
-       margin-bottom: -2px;
-     }
-     .route-editor-tab.active { 
-       color: #3b82f6;
-       border-bottom-color: #3b82f6;
-       background: rgba(59, 130, 246, 0.05);
-     }
-     .route-editor-tab:not(.active):hover {
-       color: #1a202c;
-       background: #f0f4f8;
-     }
-    .route-editor-section { display: none; }
-    .route-editor-section.active { display: block; animation: fadeIn 0.3s ease; }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    /* Responsive */
-    @media (max-width: 768px) {
-      .admin-shell { margin-top: 80px; }
-      .admin-top { flex-direction: column; gap: 16px; text-align: center; }
-      .grid-3, .grid-2 { grid-template-columns: 1fr; }
-      .modal-content { width: 95%; margin: 5% auto; }
-      .admin-nav { flex-direction: column; }
-    }
-
-    /* Scrollbar Styling */
-    .modal-body::-webkit-scrollbar,
-    div::-webkit-scrollbar {
-      width: 8px;
-    }
-    .modal-body::-webkit-scrollbar-track,
-    div::-webkit-scrollbar-track {
-      background: #f1f5f9;
-    }
-    .modal-body::-webkit-scrollbar-thumb,
-    div::-webkit-scrollbar-thumb {
-      background: #cbd5e1;
-      border-radius: 4px;
-    }
-    .modal-body::-webkit-scrollbar-thumb:hover,
-    div::-webkit-scrollbar-thumb:hover {
-      background: #94a3b8;
-    }
-
-    @keyframes fadeInRow {
-      from { opacity: 0; transform: translateY(5px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    /* Status Filter Dropdown */
-         #statusFilter {
-       padding: 6px 12px;
-       border-radius: 8px;
-       border: 2px solid #cbd5e1;
-       background: white;
-       font-weight: 600;
-       color: #1e40af;
-       cursor: pointer;
-       transition: all 0.3s ease;
-     }
-     #statusFilter:hover {
-       border-color: #3b82f6;
-     }
-     #statusFilter:focus {
-       outline: none;
-       border-color: #3b82f6;
-       box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-     }
-  </style>
-  <script>
-    const API_BASE = 'http://localhost:3000/api';
-    let currentBuses = [];
-    // Map real bus number -> display single-series number
-    let busNumberToDisplay = new Map();
-    let currentLogs = [];
-    let statusFilterValue = 'all'; // To hold the current filter status
-
-    function ensureAuth() {
-      const token = localStorage.getItem('admin_token');
-      if (!token) { 
-        window.location.href = 'admin.html'; 
-        return false;
-      }
-      return true;
-    }
-
-    function logout() { 
-      localStorage.removeItem('admin_token'); 
-      window.location.href = 'admin.html'; 
-    }
-
-    function switchTab(tab) {
-      document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('[data-pane]').forEach(p => p.style.display = 'none');
-      document.getElementById(tab).style.display = 'block';
-      document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-      if (tab === 'settingsPane') {
-        loadSettings();
-      }
-      if (tab === 'approvalsPane') {
-        loadApprovals();
-      }
-    }
-
-    async function makeApiCall(endpoint, method = 'GET', data = null) {
-      const token = localStorage.getItem('admin_token');
-      const options = {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      };
-      
-      if (data) {
-        options.body = JSON.stringify(data);
-      }
-
-      try {
-        const response = await fetch(`${API_BASE}${endpoint}`, options);
-        const result = await response.json();
-        
-        if (!response.ok) {
-          throw new Error(result.message || 'API call failed');
-        }
-        
-        return result;
-      } catch (error) {
-        console.error('API Error:', error);
-        showError(error.message);
-        throw error;
-      }
-    }
-
-    function showError(message) {
-      const errorDiv = document.createElement('div');
-      errorDiv.className = 'error';
-      errorDiv.textContent = message;
-      document.body.insertBefore(errorDiv, document.body.firstChild);
-      setTimeout(() => errorDiv.remove(), 5000);
-    }
-
-    function showSuccess(message) {
-      const successDiv = document.createElement('div');
-      successDiv.className = 'success';
-      successDiv.textContent = message;
-      document.body.insertBefore(successDiv, document.body.firstChild);
-      setTimeout(() => successDiv.remove(), 3000);
-    }
-
-    async function loadLogs() {
-      try {
-        const result = await makeApiCall('/admin/logs');
-        currentLogs = result.logs || [];
-        renderDashboard();
-      } catch (error) {
-        console.error('Failed to load logs:', error);
-      }
-    }
-
-    async function loadBuses() {
-      try {
-        const result = await makeApiCall('/admin/buses');
-        currentBuses = result.buses || [];
-        // Build display numbering 1..N based on sorted real numbers
-        try {
-          const sorted = [...currentBuses].sort((a, b) => Number(a.number) - Number(b.number));
-          busNumberToDisplay = new Map();
-          sorted.forEach((b, i) => busNumberToDisplay.set(String(b.number), String(i + 1)));
-        } catch (e) {
-          busNumberToDisplay = new Map();
-        }
-        renderBuses();
-      } catch (error) {
-        console.error('Failed to load buses:', error);
-      }
-    }
-
-    function filterLogsByStatus() {
-      statusFilterValue = document.getElementById('statusFilter').value;
-      renderDashboard();
-    }
-
-    function renderDashboard() {
-      const tbody = document.getElementById('eventsBody');
-
-      const filteredLogs = currentLogs.filter(log => {
-        if (statusFilterValue === 'all') return true;
-        return log.status === statusFilterValue;
-      });
-
-      if (filteredLogs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="loading">No logs available for this status</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = filteredLogs.map(log => {
-        const loc = (() => {
-          if (log.locationName && typeof log.lat === 'number' && typeof log.lng === 'number') {
-            return `${log.locationName} (${log.lat},${log.lng})`;
-          }
-          return log.location || '';
-        })();
-        return `
-        <tr style="animation: fadeInRow 0.3s ease-out;">
-          <td>📅 ${new Date(log.createdAt).toLocaleDateString()}</td>
-          <td>🕐 ${new Date(log.createdAt).toLocaleTimeString()}</td>
-          <td>✉️ ${log.email}</td>
-          <td>📍 ${loc}</td>
-          <td><span class="badge ${log.status === 'AVAILABLE' ? 'badge-ok' : 'badge-no'}">${log.status === 'AVAILABLE' ? '✓ ' : '✗ '}${log.status}</span></td>
-        </tr>
-      `}).join('');
-    }
-
-    function renderBuses() {
-      const list = document.getElementById('busList');
-      if (currentBuses.length === 0) {
-        list.innerHTML = '<div class="loading">No buses found</div>';
-        return;
-      }
-
-            list.innerHTML = currentBuses.map((bus, idx) => {
-        const displayNum = busNumberToDisplay.get(String(bus.number)) || String(bus.number);
-        return `
-         <div class="item">
-           <div>
-            <strong style="font-size: 1.1rem; color: #1e40af;">🚌 Bus ${displayNum}</strong> 
-            <div style="color: #64748b; margin-top: 4px;">${bus.name} • ${bus.location}</div>
-           </div>
-           <div style="display: flex; gap: 8px;">
-             <button class="btn" onclick="editRoutes('${bus.number}')">✏️ Edit Routes</button>
-             <button class="btn danger" onclick="removeBus('${bus.number}')">🗑️ Delete</button>
-           </div>
-         </div>
-      `}).join('');
-    }
-
-    async function addBus(e) {
-      e.preventDefault();
-      const num = document.getElementById('busNumber').value.trim();
-      const name = document.getElementById('busName').value.trim();
-      const location = document.getElementById('busLocation').value.trim();
-      
-      if (!num || !name || !location) {
-        showError('Please fill in all fields');
-        return;
-      }
-
-      try {
-        await makeApiCall('/admin/buses', 'POST', {
-          number: num,
-          name: name,
-          location: location
-        });
-        
-        showSuccess('Bus added successfully!');
-        e.target.reset();
-        await loadBuses();
-      } catch (error) {
-        // Error already shown by makeApiCall
-      }
-    }
-
-    async function removeBus(busNumber) {
-      if (!confirm(`Are you sure you want to delete Bus ${busNumber}?`)) {
-        return;
-      }
-
-      try {
-        await makeApiCall(`/admin/buses/${busNumber}`, 'DELETE');
-        showSuccess('Bus deleted successfully!');
-        await loadBuses();
-      } catch (error) {
-        // Error already shown by makeApiCall
-      }
-    }
-
-    // Route editor
-    const routeState = {
-      morning: [],
-      evening: [],
-      capacity: 60,
-      currentOccupancy: 0,
-      driverName: "",
-      driverPhone: "",
-      liveLocationUrl: "",
-      currentBusNumber: null,
-      editing: {
-        morning: null, // index of stop being edited, or null
-        evening: null
-      }
-    };
-
-    async function editRoutes(busNumber) {
-      routeState.currentBusNumber = busNumber;
-      
-      // Load existing routes for this bus
-      routeState.morning = [];
-      routeState.evening = [];
-      const bus = currentBuses.find(b => b.number === busNumber);
-      if (bus) {
-        routeState.capacity = bus.capacity ?? 60;
-        routeState.currentOccupancy = bus.currentOccupancy ?? 0;
-        routeState.driverName = bus.driverName ?? "";
-        routeState.driverPhone = bus.driverPhone ?? "";
-        routeState.liveLocationUrl = bus.liveLocationUrl ?? "";
-        routeState.morning = bus.stops.filter(s => s.period === 'MORNING').map(s => ({
-          name: s.name,
-          coords: `${s.lat},${s.lng}`
-        })).sort((a, b) => a.order - b.order);
-        routeState.evening = bus.stops.filter(s => s.period === 'EVENING').map(s => ({
-          name: s.name,
-          coords: `${s.lat},${s.lng}`
-        })).sort((a, b) => a.order - b.order);
-      }
-
-      const displayNum = busNumberToDisplay.get(String(busNumber)) || String(busNumber);
-      document.getElementById('modalRouteEditorTitle').textContent = `Edit Routes – Bus ${displayNum}`;
-      document.getElementById('busCapacityInput').value = routeState.capacity;
-      document.getElementById('modalBusName').value = bus.name;
-      document.getElementById('modalBusLocation').value = bus.location;
-      document.getElementById('modalDriverName').value = routeState.driverName;
-      document.getElementById('modalDriverPhone').value = routeState.driverPhone;
-      document.getElementById('modalLiveLocation').value = routeState.liveLocationUrl;
-      document.getElementById('currentOccupancyInput').value = routeState.currentOccupancy;
-      openRouteEditorModal();
-    }
-
-    function openRouteEditorModal() {
-      document.getElementById('routeEditorModal').style.display = 'block';
-      switchRouteEditorTab('morning');
-    }
-
-    function closeRouteEditorModal() {
-      document.getElementById('routeEditorModal').style.display = 'none';
-    }
-
-    function addStop(period) {
-      const nameEl = document.getElementById(`${period}StopName`);
-      const coordEl = document.getElementById(`${period}StopCoords`);
-      const name = nameEl.value.trim();
-      const coords = coordEl.value.trim();
-      
-      if (!name || !coords) {
-        showError('Please fill in both stop name and coordinates');
-        return;
-      }
-
-      // Validate coordinates format
-      const coordParts = coords.split(',');
-      if (coordParts.length !== 2 || isNaN(coordParts[0]) || isNaN(coordParts[1])) {
-        showError('Coordinates must be in format: lat,lng (e.g., 16.5062,80.6480)');
-        return;
-      }
-
-      routeState[period].push({ name, coords });
-      nameEl.value = '';
-      coordEl.value = '';
-      renderStops(period);
-    }
-
-    function renderStops(period) {
-      const box = document.getElementById(`${period}Stops`);
-      box.innerHTML = ''; // Clear existing stops
-
-      let draggedIndex = null;
-      const isEditingThisPeriod = (index) => routeState.editing[period] === index;
-
-      if (routeState[period].length === 0) {
-        box.innerHTML = '<div class="small" style="text-align:center; padding:10px;">No stops added yet.</div>';
-        return;
-      }
-
-      routeState[period].forEach((s, i) => {
-        const item = document.createElement('div');
-        item.className = 'item';
-        item.setAttribute('draggable', 'true');
-        item.dataset.index = i;
-
-        if (isEditingThisPeriod(i)) {
-          item.innerHTML = `
-            <div style="flex:1; display:flex; gap:8px;">
-              <input class="form-input" id="edit-stop-name-${period}" value="${s.name}">
-              <input class="form-input" id="edit-stop-coords-${period}" value="${s.coords}">
-            </div>
-            <div>
-              <button class="btn primary" onclick="saveStopEdit('${period}', ${i})">✓ Save</button>
-              <button class="btn" onclick="cancelStopEdit('${period}')">✗ Cancel</button>
-            </div>
-          `;
-        } else {
-          item.innerHTML = `
-            <div>${i + 1}. ${s.name} <span class="small">(${s.coords})</span></div>
-            <div>
-              <button class="btn" onclick="toggleEdit('${period}', ${i})">✏️ Edit</button>
-              <button class="btn danger" onclick="removeStop('${period}', ${i})">🗑️ Remove</button>
-            </div>
-          `;
-        }
-
-        // Drag and Drop event listeners
-        item.addEventListener('dragstart', (e) => {
-          draggedIndex = i;
-          e.target.classList.add('dragging');
-        });
-
-        item.addEventListener('dragend', (e) => {
-          e.target.classList.remove('dragging');
-          draggedIndex = null;
-        });
-
-        item.addEventListener('dragover', (e) => {
-          e.preventDefault();
-          document.querySelectorAll(`#${period}Stops .item`).forEach(el => el.classList.remove('drag-over'));
-          e.currentTarget.classList.add('drag-over');
-        });
-
-        item.addEventListener('dragleave', (e) => {
-          e.currentTarget.classList.remove('drag-over');
-        });
-
-        item.addEventListener('drop', (e) => {
-          e.preventDefault();
-          document.querySelectorAll(`#${period}Stops .item`).forEach(el => el.classList.remove('drag-over'));
-          const droppedOnIndex = i;
-          moveStop(period, draggedIndex, droppedOnIndex);
-        });
-
-        box.appendChild(item);
-      });
-    }
-
-    function removeStop(period, idx) { 
-      routeState[period].splice(idx, 1); 
-      renderStops(period); 
-    }
-
-    function toggleEdit(period, index) {
-      // Cancel any other edit in the same modal
-      routeState.editing.morning = null;
-      routeState.editing.evening = null;
-      routeState.editing[period] = index;
-      renderStops('morning');
-      renderStops('evening');
-    }
-
-    function saveStopEdit(period, index) {
-      const newName = document.getElementById(`edit-stop-name-${period}`).value.trim();
-      const newCoords = document.getElementById(`edit-stop-coords-${period}`).value.trim();
-
-      if (!newName || !newCoords) {
-        showError('Stop name and coordinates cannot be empty.');
-        return;
-      }
-
-      routeState[period][index] = { name: newName, coords: newCoords };
-      routeState.editing[period] = null;
-      renderStops(period);
-    }
-
-    function cancelStopEdit(period) {
-      routeState.editing[period] = null;
-      renderStops(period);
-    }
-
-    function moveStop(period, fromIndex, toIndex) {
-      if (fromIndex === null || fromIndex === toIndex) return;
-
-      const item = routeState[period].splice(fromIndex, 1)[0];
-      routeState[period].splice(toIndex, 0, item);
-
-      // Re-render to update order and numbering
-      renderStops(period);
-    }
-
-    async function saveRoutes() {
-      if (!routeState.currentBusNumber) {
-        showError('No bus selected for route editing');
-        return;
-      }
-
-      try {
-        const capacity = parseInt(document.getElementById('busCapacityInput').value, 10);
-        const currentOccupancy = parseInt(document.getElementById('currentOccupancyInput').value, 10);
-        const name = document.getElementById('modalBusName').value.trim();
-        const location = document.getElementById('modalBusLocation').value.trim();
-        const driverName = document.getElementById('modalDriverName').value.trim();
-        const driverPhone = document.getElementById('modalDriverPhone').value.trim();
-        const liveLocationUrl = document.getElementById('modalLiveLocation').value.trim();
-
-        const morningStops = routeState.morning.map(s => {
-          const [lat, lng] = s.coords.split(',');
-          return { name: s.name, lat: parseFloat(lat), lng: parseFloat(lng), order: routeState.morning.indexOf(s) + 1 };
-        });
-
-        const eveningStops = routeState.evening.map(s => {
-          const [lat, lng] = s.coords.split(',');
-          return { name: s.name, lat: parseFloat(lat), lng: parseFloat(lng) };
-        });
-
-        await makeApiCall(`/admin/buses/${routeState.currentBusNumber}`, 'PUT', {
-          name: name || currentBuses.find(b => b.number === routeState.currentBusNumber).name,
-          location: location || currentBuses.find(b => b.number === routeState.currentBusNumber).location,
-          capacity: isNaN(capacity) ? 60 : capacity,
-          driverName: driverName,
-          driverPhone: driverPhone,
-          liveLocationUrl: liveLocationUrl,
-          currentOccupancy: isNaN(currentOccupancy) ? 0 : currentOccupancy,
-          morningStops,
-          eveningStops
-        });
-
-        showSuccess('Routes saved successfully!');
-        closeRouteEditorModal();
-        await loadBuses();
-      } catch (error) {
-        // Error already shown by makeApiCall
-      }
-    }
-
-    function switchRouteEditorTab(period) {
-      // When switching tabs, cancel any ongoing edit
-      routeState.editing.morning = null;
-      routeState.editing.evening = null;
-      document.querySelectorAll('.route-editor-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.route-editor-section').forEach(s => s.style.display = 'none');
-      document.querySelector(`[data-route-tab="${period}"]`).classList.add('active');
-      document.getElementById(`${period}RouteSection`).style.display = 'block';
-      renderStops(period);
-    }
-
-    window.addEventListener('load', async () => {
-      if (!ensureAuth()) return;
-      
-      switchTab('dashboardPane');
-      // figure out if superadmin
-      try {
-        const me = await makeApiCall('/admin/me', 'GET');
-        if (me && me.admin && me.admin.role === 'superadmin') {
-          document.getElementById('approvalsTab').style.display = 'inline-block';
-        }
-      } catch {}
-      await Promise.all([loadLogs(), loadBuses()]);
-    });
-
-    async function loadSettings() {
-      try {
-        const res = await fetch(`${API_BASE.replace('/api', '')}/api/settings`);
-        const data = await res.json();
-        if (!data.success) return;
-        const s = data.settings || {};
-        document.getElementById('settingsTitle').value = s.siteTitle || '';
-        document.getElementById('settingsOrg').value = s.organizationName || '';
-        document.getElementById('settingsAddress').value = s.contact?.address || '';
-        document.getElementById('settingsPhone').value = s.contact?.phone || '';
-        document.getElementById('settingsEmail').value = s.contact?.email || '';
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    async function saveSettings(e) {
-      e.preventDefault();
-      try {
-        const payload = {
-          siteTitle: document.getElementById('settingsTitle').value.trim(),
-          organizationName: document.getElementById('settingsOrg').value.trim(),
-          contact: {
-            address: document.getElementById('settingsAddress').value.trim(),
-            phone: document.getElementById('settingsPhone').value.trim(),
-            email: document.getElementById('settingsEmail').value.trim()
+    const response = await fetch(`${API_BASE}/api/routes`);
+    const data = await response.json();
+    
+    if (data.success) {
+      // The API now returns full route details.
+      // We can directly use this data after adding some frontend-specific style info.
+      const processedBuses = data.routes.map(bus => {
+        return {
+          ...bus,
+          morningRoute: {
+            ...bus.morningRoute,
+            stops: bus.morningRoute.stops.map(stop => ({
+              name: stop.name,
+              coords: `${stop.coords.lat},${stop.coords.lng}`
+            })),
+            style: { color: "#0072ff", weight: 5, opacity: 1, dashed: false }
+          },
+          eveningRoute: {
+            ...bus.eveningRoute,
+            stops: bus.eveningRoute.stops.map(stop => ({
+              name: stop.name,
+              coords: `${stop.coords.lat},${stop.coords.lng}`
+            })),
+            style: { color: "#28a745", weight: 5, opacity: 1, dashed: false }
           }
         };
-        await makeApiCall('/admin/settings', 'PUT', payload);
-        showSuccess('Settings saved!');
-      } catch (e) {
-        // makeApiCall shows error
-      }
-    }
+      });
 
-    async function loadApprovals() {
-      try {
-        const res = await makeApiCall('/admin/requests', 'GET');
-        const reqs = (res && res.requests) || [];
-        const list = document.getElementById('approvalsList');
-        if (reqs.length === 0) {
-          list.innerHTML = '<div class=\"loading\">No pending requests</div>';
-          return;
+      // Ensure buses are unique by number before assigning
+      const uniqueBuses = [];
+      const seenNumbers = new Set();
+      for (const bus of processedBuses) {
+        if (!seenNumbers.has(bus.number)) {
+          uniqueBuses.push(bus);
+          seenNumbers.add(bus.number);
         }
-        list.innerHTML = reqs.map(r => `
-          <div class=\"item\">
-            <div>
-              <strong>${r.name}</strong>
-              <div class=\"small\">${r.email}</div>
-              <div class=\"small\">Requested: ${new Date(r.createdAt).toLocaleString()}</div>
-            </div>
-            <div style=\"display:flex; gap:8px;\">
-              <button class=\"btn primary\" onclick=\"approveAdmin('${encodeURIComponent(r.email)}')\">Approve</button>
-              <button class=\"btn danger\" onclick=\"rejectAdmin('${encodeURIComponent(r.email)}')\">Reject</button>
-            </div>
-          </div>
-        `).join('');
-      } catch (e) {
-        // makeApiCall shows error
       }
-    }
-
-    async function approveAdmin(emailEnc) {
+      buses = uniqueBuses;
+      
+      // Build display numbering (single series starting from 1) based on sorted real numbers
       try {
-        await makeApiCall(`/admin/requests/${emailEnc}/approve`, 'POST');
-        showSuccess('Approved'); loadApprovals();
-      } catch {}
+        const sortedByNumber = [...buses].sort((a, b) => Number(a.number) - Number(b.number));
+        busNumberToDisplay = new Map();
+        sortedByNumber.forEach((bus, index) => {
+          busNumberToDisplay.set(String(bus.number), String(index + 1));
+        });
+      } catch (e) {
+        // Fallback: leave map empty and use real numbers for display
+        busNumberToDisplay = new Map();
+      }
+      
+      // Render buses after loading
+      if (buses.length === 0) {
+        container.innerHTML = '<div class="no-buses">No buses available in the database.</div>';
+      } else {
+        renderBuses(buses);
+      }
+
+      // Populate Apply dropdown now that buses are loaded
+      if (typeof populateApplyBusOptions === 'function') {
+        populateApplyBusOptions();
+      }
+    } else {
+      console.error('Failed to load buses:', data.message);
+      container.innerHTML = '<div class="error">Failed to load bus data from database.</div>';
     }
-    async function rejectAdmin(emailEnc) {
-      try {
-        await makeApiCall(`/admin/requests/${emailEnc}/reject`, 'POST');
-        showSuccess('Rejected'); loadApprovals();
-      } catch {}
+  } catch (error) {
+    console.error('Error loading buses:', error);
+    container.innerHTML = '<div class="error">Error loading bus data. Please check if the server is running.</div>';
+  }
+}
+
+const container = document.getElementById("busContainer");
+
+// Google Maps (interactive) support
+let googleMapsLoadPromise = null;
+
+async function getGoogleMapsApiKey() {
+  try {
+    const response = await fetch(`${API_BASE}/api/maps-key`);
+    const data = await response.json();
+    if (data.success && data.key) {
+      return data.key;
     }
-  </script>
-</head>
-<body>
-  <div class="admin-shell">
-    <div class="admin-top">
-      <div class="admin-title">Admin Dashboard</div>
-      <button class="logout" onclick="logout()">Logout</button>
-    </div>
+  } catch (error) {
+    console.error('Failed to fetch Google Maps API key:', error);
+  }
+  return null; // Return null on failure
+}
 
-    <div class="admin-nav">
-      <button class="admin-tab" data-tab="dashboardPane" onclick="switchTab('dashboardPane')">Dashboard</button>
-      <button class="admin-tab" data-tab="busesPane" onclick="switchTab('busesPane')">Edit Bus Details</button>
-      <button class="admin-tab" data-tab="settingsPane" onclick="switchTab('settingsPane')">Settings</button>
-      <button class="admin-tab" data-tab="approvalsPane" onclick="switchTab('approvalsPane')" id="approvalsTab" style="display:none;">Admin Approvals</button>
-    </div>
+async function loadGoogleMapsApi() {
+  if (window.google && window.google.maps) {
+    return Promise.resolve();
+  }
+  if (googleMapsLoadPromise) return googleMapsLoadPromise;
 
-    <!-- Dashboard Pane -->
-    <div id="dashboardPane" class="card" data-pane>
-      <div class="section-title">📊 Recent Bus Availability Requests</div>
-      <table class="admin-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Time</th>
-            <th>Email</th>
-            <th>Location</th>
-            <th>
-              Status
-              <select id="statusFilter" onchange="filterLogsByStatus()" style="margin-left: 8px; padding: 2px 4px; border-radius: 4px; border: 1px solid #ddd;">
-                <option value="all">All</option>
-                <option value="AVAILABLE">Available</option>
-                <option value="UNAVAILABLE">Unavailable</option>
-              </select>
-            </th>
-          </tr>
-        </thead>
-        <tbody id="eventsBody"></tbody>
-      </table>
-    </div>
+  googleMapsLoadPromise = new Promise(async (resolve, reject) => {
+    const apiKey = await getGoogleMapsApiKey();
+    if (!apiKey) return reject(new Error('Google Maps API Key not available from server.'));
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+    script.async = true;
+    script.defer = true;
+    script.setAttribute('data-gmaps', 'true');
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Google Maps JS API'));
+    document.head.appendChild(script);
+  });
+  return googleMapsLoadPromise;
+}
 
-    <!-- Approvals Pane (superadmin only) -->
-    <div id="approvalsPane" class="card" data-pane style="display:none;">
-      <div class="section-title">✅ Approve New Admins</div>
-      <div id="approvalsList" class="list"></div>
-    </div>
-    <!-- Buses Pane -->
-    <div id="busesPane" class="card" data-pane style="display:none;">
-      <div class="section-title">🚌 Manage Buses</div>
-      <form onsubmit="addBus(event)" class="grid-3" style="margin-bottom:10px;">
-        <input id="busNumber" class="form-input" placeholder="Bus Number (e.g., 101)" required>
-        <input id="busName" class="form-input" placeholder="Bus Name (e.g., Bus 101)" required>
-        <input id="busLocation" class="form-input" placeholder="Location (e.g., Vijayawada)" required>
-        <div></div>
-        <div></div>
-        <div style="text-align:right;"><button class="btn primary" type="submit">➕ Add Bus</button></div>
-      </form>
-      <div id="busList" class="list"></div>
-    </div>
+// Build polyline style options from route data (with sane defaults)
+function buildPolylineOptions(coordsArray, routeData) {
+  const style = routeData && routeData.style ? routeData.style : {};
+  const color = style.color || '#0072ff';
+  const weight = Number(style.weight || 4);
+  const opacity = style.opacity === 0 ? 0 : (style.opacity || 1);
+  const dashed = Boolean(style.dashed);
 
-    <!-- Settings Pane -->
-    <div id="settingsPane" class="card" data-pane style="display:none;">
-      <div class="section-title">⚙️ Site Settings</div>
-      <form onsubmit="saveSettings(event)" class="grid-2" style="margin-bottom:10px;">
-        <div class="form-group">
-          <label class="small" for="settingsTitle">Site Title</label>
-          <input id="settingsTitle" class="form-input" placeholder="BUS TRANSPORT DETAILS">
-        </div>
-        <div class="form-group">
-          <label class="small" for="settingsOrg">Organization Name</label>
-          <input id="settingsOrg" class="form-input" placeholder="Your Institution">
-        </div>
-        <div class="form-group">
-          <label class="small" for="settingsAddress">Contact Address</label>
-          <input id="settingsAddress" class="form-input" placeholder="Address line">
-        </div>
-        <div class="form-group">
-          <label class="small" for="settingsPhone">Contact Phone</label>
-          <input id="settingsPhone" class="form-input" placeholder="+91 00000 00000">
-        </div>
-        <div class="form-group">
-          <label class="small" for="settingsEmail">Contact Email</label>
-          <input id="settingsEmail" type="email" class="form-input" placeholder="support@example.com">
-        </div>
-        <div></div>
-        <div style="text-align:right;"><button class="btn primary" type="submit">💾 Save Settings</button></div>
-      </form>
-      <div class="small">These values control the public site header and footer.</div>
-    </div>
+  const options = {
+    path: coordsArray,
+    geodesic: true,
+    strokeColor: color,
+    strokeOpacity: opacity,
+    strokeWeight: weight,
+  };
 
-    <!-- Route Editor Modal -->
-    <div id="routeEditorModal" class="modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 id="modalRouteEditorTitle">Edit Routes</h2>
-          <span class="modal-close" onclick="closeRouteEditorModal()">&times;</span>
-        </div>
-        <div class="modal-body">
-          <div class="grid-2" style="margin-bottom: 10px;">
-            <div class="form-group">
-              <label for="modalBusName" class="small">Bus Name</label>
-              <input id="modalBusName" type="text" class="form-input" placeholder="e.g., Bus 101">
-            </div>
-            <div class="form-group">
-              <label for="modalBusLocation" class="small">Bus Location</label>
-              <input id="modalBusLocation" type="text" class="form-input" placeholder="e.g., Vijayawada">
-            </div>
-          </div>
-          <div class="grid-2" style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #ddd;">
-            <div class="form-group">
-              <label for="busCapacityInput" class="small">Bus Capacity</label>
-              <input id="busCapacityInput" type="number" class="form-input" placeholder="e.g., 60">
-            </div>
-            <div class="form-group">
-              <label for="currentOccupancyInput" class="small">Current Occupancy</label>
-              <input id="currentOccupancyInput" type="number" class="form-input" placeholder="e.g., 45">
-            </div>
-          </div>
-          <div class="grid-2" style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #ddd;">
-            <div class="form-group">
-              <label for="modalDriverName" class="small">Driver Name</label>
-              <input id="modalDriverName" type="text" class="form-input" placeholder="e.g., John Doe">
-            </div>
-            <div class="form-group">
-              <label for="modalDriverPhone" class="small">Driver Phone</label>
-              <input id="modalDriverPhone" type="text" class="form-input" placeholder="e.g., +91 9876543210">
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #ddd;">
-            <label for="modalLiveLocation" class="small">Live Location URL</label>
-            <input id="modalLiveLocation" type="url" class="form-input" placeholder="https://maps.google.com/...">
-          </div>
+  // Dashed line using symbol icons
+  if (dashed) {
+    options.strokeOpacity = 0; // hide base stroke
+    options.icons = [{
+      icon: { path: 'M 0,-1 0,1', strokeOpacity: opacity, strokeColor: color, scale: Math.max(2, weight) },
+      offset: '0',
+      repeat: `${Math.max(10, weight * 3)}px`
+    }];
+  }
 
+  return options;
+}
 
+// Function to adjust main content padding based on header height
+function adjustMainPadding() {
+  const header = document.querySelector('header');
+  const main = document.querySelector('main');
+  
+  if (header && main) {
+    const headerHeight = header.offsetHeight;
+    const extraPadding = 20; // Extra space for visual separation
+    const totalPadding = headerHeight + extraPadding;
+    
+    main.style.paddingTop = `${totalPadding}px`;
+  }
+}
 
-          <div class="route-editor-tabs">
-            <button class="route-editor-tab" data-route-tab="morning" onclick="switchRouteEditorTab('morning')">Morning Route</button>
-            <button class="route-editor-tab" data-route-tab="evening" onclick="switchRouteEditorTab('evening')">Evening Route</button>
-          </div>
+// Adjust padding on load and resize
+window.addEventListener('load', adjustMainPadding);
+window.addEventListener('resize', adjustMainPadding);
 
-          <div id="morningRouteSection" class="route-editor-section">
-            <div class="grid-2">
-              <input id="morningStopName" class="form-input" placeholder="Stop name">
-              <input id="morningStopCoords" class="form-input" placeholder="Coordinates (lat,lng)">
-            </div>
-            <div style="text-align:right; margin-top:8px;"><button class="btn" onclick="addStop('morning')">➕ Add Stop</button></div>
-            <div id="morningStops" class="list"></div>
-          </div>
+// Load public site settings and apply to header/footer
+async function applySiteSettings() {
+  try {
+    const res = await fetch(`${API_BASE}/api/settings`);
+    const data = await res.json();
+    if (!data.success || !data.settings) return;
+    const s = data.settings;
+    const titleEl = document.getElementById('siteTitle');
+    if (titleEl) titleEl.textContent = s.siteTitle || 'BUS TRANSPORT DETAILS';
+    const addrEl = document.getElementById('contactAddress');
+    const phoneEl = document.getElementById('contactPhone');
+    const emailEl = document.getElementById('contactEmail');
+    if (addrEl) addrEl.textContent = `📍 Address: ${s.contact?.address || 'Address line'}`;
+    if (phoneEl) phoneEl.textContent = `📞 Contact: ${s.contact?.phone || '+91 00000 00000'}`;
+    if (emailEl) emailEl.textContent = `✉️ Email: ${s.contact?.email || 'support@example.com'}`;
+  } catch (e) {
+    // Silently ignore, defaults remain
+  }
+}
 
-          <div id="eveningRouteSection" class="route-editor-section">
-            <div class="grid-2">
-              <input id="eveningStopName" class="form-input" placeholder="Stop name">
-              <input id="eveningStopCoords" class="form-input" placeholder="Coordinates (lat,lng)">
-            </div>
-            <div style="text-align:right; margin-top:8px;"><button class="btn" onclick="addStop('evening')">➕ Add Stop</button></div>
-            <div id="eveningStops" class="list"></div>
-          </div>
-
-          <div style="text-align:right; margin-top:20px; border-top: 1px solid #ddd; padding-top: 16px; display: flex; gap: 12px; justify-content: flex-end;">
-            <button class="btn" onclick="closeRouteEditorModal()">❌ Cancel</button>
-            <button class="btn primary" onclick="saveRoutes()">💾 Save Routes</button>
+// Function to render bus cards
+function renderBuses(list) {
+  container.innerHTML = "";
+  list.forEach(bus => {
+    const displayNumber = busNumberToDisplay.get(String(bus.number)) || String(bus.number);
+    container.innerHTML += `
+      <div class="bus-card" data-bus-number="${bus.number}">
+        <div class="bus-info">
+          <div class="bus-number">${displayNumber}</div>
+          <div class="bus-details">
+            <h3>${bus.name}</h3>
+            <p>📍 ${bus.location}</p>
           </div>
         </div>
+        <button class="view-btn">View Route</button>
       </div>
+    `;
+  });
+}
+
+// Load buses from database when page loads
+loadBusesFromDatabase();
+// Apply site settings on load
+applySiteSettings();
+
+// Search functionality
+document.getElementById("busForm").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  const email = document.getElementById("email").value;
+  const location = document.getElementById("location").value;
+
+  if (!email) {
+    showNotification('Please enter your email address.', 'error');
+    return;
+  }
+
+  // Show loading state
+  const submitBtn = document.querySelector(".search-btn");
+  const originalText = submitBtn.innerHTML;
+  submitBtn.innerHTML = "🔍 Searching...";
+  submitBtn.disabled = true;
+
+  try {
+    // Call backend API to check bus availability
+    const response = await fetch(`${API_BASE}/api/check-availability`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: email,
+        location: location
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      const numbers = (data.buses || []).map(b => {
+        const real = String(b.busNumber);
+        return busNumberToDisplay.get(real) || real;
+      });
+      // Show availability panel without filtering the main bus list
+      renderAvailabilityPanel(data.available, numbers); 
+    } else {
+      showNotification(data.message || 'Error checking bus availability', 'error');
+    }
+  } catch (error) {
+    console.error('Error:', error);
+    showNotification('Unable to connect to server. Please try again.', 'error');
+    
+    // Fallback to local search
+    const query = location.toLowerCase();
+  const filtered = buses.filter(bus =>
+    bus.location.toLowerCase().includes(query) ||
+    bus.name.toLowerCase().includes(query) ||
+    bus.number.includes(query)
+  );
+  renderBuses(filtered.length ? filtered : buses);
+  } finally {
+    // Reset button state
+    submitBtn.innerHTML = originalText;
+    submitBtn.disabled = false;
+  }
+});
+
+// Use current location button
+document.getElementById('useCurrentLocation')?.addEventListener('click', () => {
+  const btn = document.getElementById('useCurrentLocation');
+  const input = document.getElementById('location');
+  const form = document.getElementById('busForm');
+
+  if (!navigator.geolocation) {
+    showNotification('Geolocation is not supported by your browser.', 'error');
+    return;
+  }
+
+  const originalText = btn.textContent;
+  btn.textContent = '📍 Getting location...';
+  btn.setAttribute('disabled', 'true');
+
+  navigator.geolocation.getCurrentPosition(async (position) => {
+    try {
+      const lat = position.coords.latitude; // use full precision
+      const lng = position.coords.longitude; // use full precision
+      const accuracyMeters = position.coords.accuracy; // estimated radius in meters
+      input.value = `${lat},${lng}`;
+
+      // Warn if accuracy is poor (>100m)
+      if (typeof accuracyMeters === 'number' && accuracyMeters > 100) {
+        showNotification(`Location accuracy is about ~${Math.round(accuracyMeters)}m. Turn on GPS for better accuracy.`, 'warning');
+      }
+
+      // If accuracy is poor (> 200m), try improving with watchPosition for a short window
+      const targetAccuracy = 100; // meters
+      const improveThreshold = 200; // meters
+      let submitted = false;
+      let bestFix = { lat, lng, accuracy: typeof accuracyMeters === 'number' ? accuracyMeters : Infinity };
+
+      function submitNow() {
+        if (submitted) return;
+        submitted = true;
+        input.value = `${bestFix.lat},${bestFix.lng}`;
+        if (typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        } else {
+          form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        }
+        btn.textContent = originalText;
+        btn.removeAttribute('disabled');
+      }
+
+      if (bestFix.accuracy > improveThreshold && navigator.geolocation.watchPosition) {
+        showNotification('Improving location accuracy...', 'info');
+        const watchId = navigator.geolocation.watchPosition((pos) => {
+          const a = typeof pos.coords.accuracy === 'number' ? pos.coords.accuracy : Infinity;
+          if (a < bestFix.accuracy) {
+            bestFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: a };
+            input.value = `${bestFix.lat},${bestFix.lng}`;
+          }
+          if (a <= targetAccuracy) {
+            navigator.geolocation.clearWatch(watchId);
+            submitNow();
+          }
+        }, () => {
+          // ignore watch errors; we'll submit best after timeout
+        }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+
+        // Stop trying after 15s and submit the best we have
+        setTimeout(() => {
+          try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
+          submitNow();
+        }, 15000);
+      } else {
+        // Auto-submit the form to check availability with current fix
+        submitNow();
+      }
+    } catch (err) {
+      console.error(err);
+      showNotification('Failed to use current location.', 'error');
+    } finally {
+      // Button state is reset in submitNow() for the success path; ensure fallback reset on early failures
+    }
+  }, (error) => {
+    let message = 'Unable to retrieve your location.';
+    if (error && typeof error.code === 'number') {
+      if (error.code === error.PERMISSION_DENIED) message = 'Location permission denied. Please allow access and try again.';
+      if (error.code === error.POSITION_UNAVAILABLE) message = 'Location information is unavailable. Try again later.';
+      if (error.code === error.TIMEOUT) message = 'Getting location timed out. Please try again.';
+    }
+    showNotification(message, 'warning');
+    btn.textContent = originalText;
+    btn.removeAttribute('disabled');
+  }, {
+    enableHighAccuracy: true,
+    timeout: 20000,
+    maximumAge: 0
+  });
+});
+
+// Populate Apply form bus dropdown based on availability (capacity > currentOccupancy)
+function populateApplyBusOptions() {
+  const select = document.getElementById('applyBus');
+  if (!select) return;
+
+  // Clear existing
+  select.innerHTML = '';
+
+  // Compute available buses
+  const available = (buses || []).filter(b => {
+    const cap = Number(b.capacity || 0);
+    const occ = Number(b.currentOccupancy || 0);
+    return cap > 0 && occ < cap;
+  });
+
+  if (available.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.disabled = true;
+    opt.selected = true;
+    opt.textContent = 'No buses with availability right now';
+    select.appendChild(opt);
+    select.disabled = true;
+    return;
+  }
+
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  placeholder.textContent = 'Select a bus';
+  select.appendChild(placeholder);
+
+  available.forEach(b => {
+    const cap = Number(b.capacity || 0);
+    const occ = Number(b.currentOccupancy || 0);
+    const left = Math.max(0, cap - occ);
+    const opt = document.createElement('option');
+    opt.value = b.number;
+    opt.textContent = `${b.number} - ${b.name} - ${b.location} (${left} seats left)`;
+    select.appendChild(opt);
+  });
+
+  select.disabled = false;
+}
+
+// If buses were already loaded earlier, try populate on DOMContentLoaded as a fallback
+document.addEventListener('DOMContentLoaded', () => {
+  if ((buses || []).length > 0) {
+    populateApplyBusOptions();
+  }
+});
+
+// Handle Apply form submit: validate, re-check availability, then redirect to payment placeholder
+document.getElementById('applyForm')?.addEventListener('submit', async function(e) {
+  e.preventDefault();
+
+  const name = document.getElementById('applyName').value.trim();
+  const roll = document.getElementById('applyRoll').value.trim();
+  const email = document.getElementById('applyEmail').value.trim();
+  const phone = document.getElementById('applyPhone').value.trim();
+  const address = document.getElementById('applyAddress').value.trim();
+  const busNumber = document.getElementById('applyBus').value;
+
+  if (!name || !roll || !email || !phone || !address || !busNumber) {
+    showNotification('Please fill all fields.', 'error');
+    return;
+  }
+
+  // Re-check availability from current list
+  const bus = (buses || []).find(b => b.number === busNumber);
+  if (!bus) {
+    showNotification('Selected bus not found. Please refresh.', 'error');
+    return;
+  }
+  const cap = Number(bus.capacity || 0);
+  const occ = Number(bus.currentOccupancy || 0);
+  if (!(cap > 0 && occ < cap)) {
+    showNotification('Sorry, this bus is currently full. Please choose another.', 'warning');
+    populateApplyBusOptions();
+    return;
+  }
+
+  // Redirect to placeholder payment page with minimal query params
+  const params = new URLSearchParams({
+    name,
+    roll,
+    email,
+    phone,
+    address,
+    bus: busNumber
+  });
+  // Placeholder redirect target (to be replaced when payment page is added)
+  window.location.href = `payment.html?${params.toString()}`;
+});
+
+// Notification function
+function showNotification(message, type = 'info') {
+  // Remove existing notifications
+  const existingNotification = document.querySelector('.notification');
+  if (existingNotification) {
+    existingNotification.remove();
+  }
+
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.className = `notification notification-${type}`;
+  notification.innerHTML = `
+    <div class="notification-content">
+      <span class="notification-message">${message}</span>
+      <button class="notification-close">&times;</button>
     </div>
-  </div>
-</body>
-</html>
+  `;
+
+  // Add styles
+  notification.style.cssText = `
+    position: fixed;
+    top: 100px;
+    right: 20px;
+    background: ${type === 'success' ? '#28a745' : type === 'warning' ? '#ffc107' : type === 'error' ? '#dc3545' : '#0072ff'};
+    color: white;
+    padding: 15px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 10000;
+    max-width: 400px;
+    animation: slideIn 0.3s ease-out;
+  `;
+
+  // Add animation styles
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .notification-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .notification-close {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      margin-left: 10px;
+    }
+  `;
+  document.head.appendChild(style);
+
+  // Add to page
+  document.body.appendChild(notification);
+
+  // Auto remove after 5 seconds
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.remove();
+    }
+  }, 5000);
+
+  // Close button functionality
+  notification.querySelector('.notification-close').addEventListener('click', () => {
+    notification.remove();
+  });
+}
+
+// Availability result panel below the form
+function renderAvailabilityPanel(isAvailable, numbers) {
+  // Remove existing panel
+  const existing = document.querySelector('.result-panel');
+  if (existing) existing.remove();
+
+  const form = document.getElementById('busForm');
+  const panel = document.createElement('div');
+  panel.className = `result-panel ${isAvailable ? 'result-success' : 'result-warning'}`;
+
+  if (isAvailable) {
+    const title = document.createElement('div');
+    title.className = 'result-title';
+    title.textContent = `Found ${numbers.length} bus(es) serving your area within 1.5km radius!`;
+    const line = document.createElement('p');
+    line.className = 'result-line';
+    line.textContent = `Bus numbers: ${numbers.join(', ')}`;
+    panel.appendChild(title);
+    panel.appendChild(line);
+  } else {
+    const title = document.createElement('div');
+    title.className = 'result-title';
+    title.textContent = 'No buses available nearby';
+    const line = document.createElement('p');
+    line.className = 'result-line'; line.textContent = 'Right now bus is unavailable within 1.5km radius of your location.';
+    panel.appendChild(title);
+    panel.appendChild(line);
+  }
+
+  form.insertAdjacentElement('afterend', panel);
+}
+
+// ---- Admin/Shared: safer route rendering to a given map element ----
+function toLatLng(coords) {
+  if (!coords) return null;
+  if (typeof coords === 'string') {
+    const parts = coords.split(',').map(Number);
+    if (parts.length === 2 && parts.every(n => !isNaN(n))) {
+      return new google.maps.LatLng(parts[0], parts[1]);
+    }
+    return null;
+  }
+  if (typeof coords === 'object' && typeof coords.lat === 'number' && typeof coords.lng === 'number') {
+    return new google.maps.LatLng(coords.lat, coords.lng);
+  }
+  return null;
+}
+
+async function showRouteOnMap(busNumber, mapElementId, type) {
+  try {
+    const el = document.getElementById(mapElementId);
+    if (!el) { console.error('Map element not found'); return; }
+
+    // Ensure Google Maps is loaded (reuse loader if available)
+    if (typeof loadGoogleMapsApi === 'function') {
+      await loadGoogleMapsApi();
+    } else if (!(window.google && google.maps)) {
+      console.error('Google Maps JS API not loaded');
+      return;
+    }
+
+    const res = await fetch(`${API_BASE}/api/routes/${busNumber}`);
+    const data = await res.json();
+    if (!data.success || !data.bus) { console.error('Route not found'); return; }
+
+    const route = type === 'morning' ? data.bus.morningRoute : data.bus.eveningRoute;
+    const stops = (route && route.stops) ? route.stops : [];
+    if (stops.length < 2) { console.error('Need at least 2 stops'); return; }
+
+    const origin = toLatLng(stops[0].coords);
+    const destination = toLatLng(stops[stops.length - 1].coords);
+    const waypoints = stops.slice(1, -1).map(s => ({ location: toLatLng(s.coords), stopover: true })).filter(w => !!w.location);
+
+    const map = new google.maps.Map(el, { zoom: 12, center: origin });
+    const directionsService = new google.maps.DirectionsService();
+    const directionsRenderer = new google.maps.DirectionsRenderer({ map, suppressMarkers: false });
+
+    directionsService.route({
+      origin,
+      destination,
+      waypoints,
+      travelMode: google.maps.TravelMode.DRIVING,
+      optimizeWaypoints: false,
+      provideRouteAlternatives: false
+    }, (result, status) => {
+      if ((google.maps.DirectionsStatus && status === google.maps.DirectionsStatus.OK) || status === 'OK') {
+        directionsRenderer.setDirections(result);
+        const bounds = new google.maps.LatLngBounds();
+        result.routes[0].overview_path.forEach(p => bounds.extend(p));
+        map.fitBounds(bounds);
+      } else {
+        console.error('Directions request failed:', status);
+      }
+    });
+  } catch (err) {
+    console.error('Error loading route:', err);
+  }
+}
+
+// Modal functionality
+const modal = document.getElementById("routeModal");
+const modalTitle = document.getElementById("modalTitle");
+const closeBtn = document.querySelector(".close");
+
+// Safety check for modal elements
+if (!modal || !modalTitle || !closeBtn) {
+  console.error("Modal elements not found. Please check HTML structure.");
+}
+
+// Handle "View Route" button click
+document.addEventListener("click", (e) => {
+  if (e.target.classList.contains("view-btn")) {
+    const busCard = e.target.closest(".bus-card");
+    const busName = busCard.querySelector("h3").textContent;
+    // Use real bus number from data attribute for API calls
+    const busNumber = busCard.getAttribute("data-bus-number");
+    
+    // Find the bus data
+    const busData = buses.find(bus => bus.number === busNumber);
+    if (busData) {
+      showModal(busData);
+    }
+  }
+});
+
+// Show modal with bus data
+function showModal(busData) {
+  // Store current bus data
+  currentBusData = busData;
+  
+  modalTitle.textContent = `${busData.name} - ${busData.location}`;
+  
+  // Update morning route
+  document.getElementById("morningRouteTitle").textContent = 
+    `Morning Route: ${busData.morningRoute.from} → ${busData.morningRoute.to}`;
+  document.getElementById("morningRouteDescription").textContent = 
+    busData.morningRoute.description;
+  
+  // Create stops list for morning route
+  const morningStopsList = busData.morningRoute.stops.map((stop, index) => 
+    `${index + 1}. ${stop.name}`
+  ).join('<br>');
+  document.getElementById("morningRouteStops").innerHTML = 
+    `<strong>Route Stops:</strong><br>${morningStopsList}`;
+  
+  // Update evening route
+  document.getElementById("eveningRouteTitle").textContent = 
+    `Evening Route: ${busData.eveningRoute.from} → ${busData.eveningRoute.to}`;
+  document.getElementById("eveningRouteDescription").textContent = 
+    busData.eveningRoute.description;
+  
+  // Create stops list for evening route
+  const eveningStopsList = busData.eveningRoute.stops.map((stop, index) => 
+    `${index + 1}. ${stop.name}`
+  ).join('<br>');
+  document.getElementById("eveningRouteStops").innerHTML = 
+    `<strong>Route Stops:</strong><br>${eveningStopsList}`;
+  
+  // Populate description tab
+  const busRouteTextEl = document.getElementById("busRouteText");
+  if (busData.morningRoute && busData.morningRoute.stops.length > 0) {
+    const routeFlow = busData.morningRoute.stops
+      .map(stop => `<div>${stop.name}</div>`)
+      .join('<div class="route-arrow">↓</div>');
+    busRouteTextEl.innerHTML = `<div class="route-flow">${routeFlow}</div>`;
+  } else {
+    busRouteTextEl.innerHTML = "<p>Route details not available.</p>";
+  }
+
+  // Populate Occupancy
+  document.getElementById('busCapacity').textContent = `Bus Capacity: ${busData.capacity || 'N/A'}`;
+  document.getElementById('currentOccupancy').textContent = `Current Occupancy: ${busData.currentOccupancy || 0} Students`;
+
+  // Populate Driver Details
+  document.getElementById('driverName').textContent = `Name: ${busData.driverName || 'Not available'}`;
+  document.getElementById('driverPhone').textContent = `Phone: ${busData.driverPhone || 'Not available'}`;
+
+  // Populate Live Location
+  const liveLocationEl = document.getElementById('liveLocationLink');
+  if (busData.liveLocationUrl) {
+    liveLocationEl.innerHTML = `<a href="${busData.liveLocationUrl}" target="_blank" rel="noopener noreferrer">Click here to view live location</a>`;
+  } else {
+    liveLocationEl.textContent = 'Live location not available.';
+  }
+
+
+  // Generate dynamic maps
+  // Make modal visible BEFORE rendering maps so Google Maps can measure container
+  modal.style.display = "block";
+
+  // Reset to description tab
+  switchRouteTab('details');
+
+  // Prevent body scrolling
+  document.body.style.overflow = 'hidden';
+
+  // Render maps after next tick to ensure layout is settled
+  setTimeout(() => {
+    generateRouteMap('morning', busData.morningRoute);
+    generateRouteMap('evening', busData.eveningRoute);
+  }, 0);
+}
+
+
+
+
+
+// Generate dynamic route map
+async function generateRouteMap(routeType, routeData) {
+  const mapContainer = document.querySelector(`#${routeType}Route .route-map`);
+  // Hide placeholder
+  const placeholder = mapContainer.querySelector('.map-placeholder');
+  if (placeholder) placeholder.style.display = 'none';
+
+  // Prepare/clear canvas
+  let canvas = mapContainer.querySelector('.map-canvas');
+  if (!canvas) {
+    canvas = document.createElement('div');
+    canvas.className = 'map-canvas';
+    canvas.style.width = '100%';
+    canvas.style.height = '400px';
+    canvas.style.borderRadius = '12px';
+    canvas.style.overflow = 'hidden';
+    mapContainer.appendChild(canvas);
+  } else {
+    canvas.innerHTML = '';
+  }
+
+  try {
+    await loadGoogleMapsApi();
+
+    // Get stops from routeData.stops array
+    const stops = routeData.stops || [];
+    if (stops.length < 2) {
+      throw new Error('Not enough stops for route');
+    }
+
+    // Parse coordinates from stops
+    const coords = stops.map(stop => {
+      const [lat, lng] = stop.coords.split(',').map(Number);
+      return { lat, lng };
+    });
+
+    // Default center
+    const defaultCenter = coords[0] || { lat: 16.5286, lng: 80.6393 };
+
+    const map = new google.maps.Map(canvas, {
+      center: defaultCenter,
+      zoom: 12,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: true,
+      zoomControl: true,
+    });
+
+    if (coords.length > 0) {
+      // Use Directions API to snap to roads and honor waypoints
+      const svc = new google.maps.DirectionsService();
+      const rnd = new google.maps.DirectionsRenderer({
+        suppressMarkers: true,
+        preserveViewport: false,
+        polylineOptions: buildPolylineOptions(coords, routeData)
+      });
+      rnd.setMap(map);
+
+      // Origin and destination
+      const origin = coords[0];
+      const destination = coords[coords.length - 1];
+      
+      // Waypoints (all stops except first and last)
+      const waypoints = coords.slice(1, -1).map(coord => ({ 
+        location: coord, 
+        stopover: true 
+      }));
+
+      svc.route({
+        origin,
+        destination,
+        waypoints,
+        travelMode: google.maps.TravelMode.DRIVING,
+        optimizeWaypoints: false,
+        provideRouteAlternatives: false
+      }, (res, status) => {
+        if (status === google.maps.DirectionsStatus.OK && res) {
+          rnd.setDirections(res);
+        } else {
+          // Fallback to straight polyline if directions fail
+          const polyline = new google.maps.Polyline(buildPolylineOptions(coords, routeData));
+          polyline.setMap(map);
+          const bounds = new google.maps.LatLngBounds();
+          coords.forEach(c => bounds.extend(c));
+          map.fitBounds(bounds);
+        }
+      });
+
+
+      
+
+      // Create markers for each stop with custom icons and info windows
+      stops.forEach((stop, index) => {
+        const [lat, lng] = stop.coords.split(',').map(Number);
+        const position = { lat, lng };
+        
+        // Different marker for start, waypoints, and end
+        let markerIcon = '';
+        let label = '';
+        let markerColor = '#0072ff';
+        
+        if (index === 0) {
+          // Start marker
+          markerIcon = '🚌';
+          label = 'S';
+          markerColor = '#28a745';
+        } else if (index === stops.length - 1) {
+          // End marker
+          markerIcon = '🏫';
+          label = 'D';
+          markerColor = '#dc3545';
+        } else {
+          // Waypoint marker
+          markerIcon = '📍';
+          label = (index).toString();
+          markerColor = '#ffc107';
+        }
+
+        const marker = new google.maps.Marker({
+          position,
+          map,
+          label: {
+            text: label,
+            color: 'white',
+            fontWeight: 'bold',
+            fontSize: '12px'
+          },
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 8,
+            fillColor: markerColor,
+            fillOpacity: 1,
+            strokeColor: 'white',
+            strokeWeight: 2
+          },
+          title: stop.name
+        });
+
+        // Info window for each stop
+        const infoWindow = new google.maps.InfoWindow({
+          content: `
+            <div style="padding: 8px; font-family: Arial, sans-serif;">
+              <strong>${stop.name}</strong><br>
+              <small>Stop ${index + 1} of ${stops.length}</small><br>
+              <small>Coordinates: ${stop.coords}</small>
+            </div>
+          `
+        });
+
+        marker.addListener('click', () => {
+          infoWindow.open(map, marker);
+        });
+      });
+    }
+  } catch (err) {
+    // On failure, show placeholder
+    if (placeholder) placeholder.style.display = 'flex';
+    console.error('Map render failed:', err);
+  }
+}
+
+// Close modal
+function closeModal() {
+  modal.style.display = "none";
+  // Restore body scrolling
+  document.body.style.overflow = 'auto';
+  // Reset current bus data
+  currentBusData = null;
+  // Reset modal to description route
+  switchRouteTab('details');
+  // Restore placeholder content
+  restorePlaceholders();
+}
+
+// Restore placeholder content
+function restorePlaceholders() {
+  const morningMap = document.querySelector('#morningRoute .route-map');
+  const eveningMap = document.querySelector('#eveningRoute .route-map');
+  
+  // Remove any existing map images
+  const morningImg = morningMap.querySelector('img');
+  const eveningImg = eveningMap.querySelector('img');
+  
+  if (morningImg) morningImg.remove();
+  if (eveningImg) eveningImg.remove();
+  
+  // Show placeholders
+  const morningPlaceholder = morningMap.querySelector('.map-placeholder');
+  const eveningPlaceholder = eveningMap.querySelector('.map-placeholder');
+  
+  if (morningPlaceholder) morningPlaceholder.style.display = 'flex';
+  if (eveningPlaceholder) eveningPlaceholder.style.display = 'flex';
+}
+
+// Event listeners for closing modal
+closeBtn.addEventListener("click", closeModal);
+
+// Intentionally disable closing by clicking outside or Escape key
+// Modal will close only via the header close (X) button
+
+// Tab switching functionality
+function switchRouteTab(routeType) {
+  // Remove active class from all tabs and sections
+  document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.remove("active"));
+  document.querySelectorAll(".route-section").forEach(section => section.classList.remove("active"));
+  
+  // Add active class to selected tab and section
+  const tabButton = document.querySelector(`[data-route="${routeType}"]`);  
+  if (tabButton) tabButton.classList.add("active");  
+  const routeSection = document.getElementById(`${routeType}Route`);  
+  if (routeSection) routeSection.classList.add("active");
+}
+
+// Store current bus data for map regeneration
+let currentBusData = null;
+
+// Handle tab clicks
+document.addEventListener("click", (e) => {
+  if (e.target.classList.contains("tab-btn")) {
+    const routeType = e.target.getAttribute("data-route");
+    switchRouteTab(routeType);
+  }
+});
