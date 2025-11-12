@@ -839,19 +839,26 @@
       renderStops(period);
     }
 
-    window.addEventListener('load', async () => {
-      if (!ensureAuth()) return;
-      
-      switchTab('dashboardPane');
-      // figure out if superadmin
-      try { // Use legacy endpoint for /admin/me
-        const me = await makeApiCall('/admin/me', 'GET');
-        if (me && me.admin && me.admin.role === 'superadmin') {
-          document.getElementById('approvalsTab').style.display = 'inline-block';
-        }
-      } catch {}
-      await Promise.all([loadLogs(), loadBuses()]);
-    });
+window.addEventListener('load', async () => {
+  if (!ensureAuth()) return;
+  
+  // Default to bus management tab so admins see changes immediately
+  switchTab('busesPane');
+  
+  try {
+    const me = await makeApiCall('/admin/me', 'GET');
+    if (me && me.admin && me.admin.role === 'superadmin') {
+      document.getElementById('approvalsTab').style.display = 'inline-block';
+    }
+  } catch (e) {
+    console.warn('Failed to check admin role', e);
+  }
+
+  // Load all data sets freshly
+  await loadBuses();
+  await loadLogs();
+});
+
 
     async function loadSettings() {
       try {
