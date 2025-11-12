@@ -110,31 +110,32 @@
   <script>
     async function adminLogin(e) {
       e.preventDefault();
-      const email = document.getElementById('adminEmail').value.trim();
-      const password = document.getElementById('adminPassword').value;
-      const btn = document.getElementById('adminBtn');
-      const err = document.getElementById('adminError');
-      err.textContent = '';
-      err.style.display = 'none';
-      btn.disabled = true; btn.textContent = '⏳ Signing in...';
+      const email = document.getElementById('emailInput').value.trim();
+      const password = document.getElementById('passwordInput').value;
+
       try {
-        const res = await fetch('http://localhost:3000/admin/login', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const res = await fetch('/admin/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
           body: JSON.stringify({ email, password })
         });
+
         const data = await res.json();
-        if (!data.success) { 
-          err.textContent = data.message || 'Login failed';
-          err.style.display = 'flex';
-        } else {
-          localStorage.setItem('admin_token', data.token);
-          window.location.href = 'admin-dashboard.html';
+        if (!res.ok) {
+          // show error to user
+          alert(data?.message || 'Login failed');
+          return;
         }
-      } catch (e2) {
-        err.textContent = 'Unable to connect to server';
-        err.style.display = 'flex';
-      } finally {
-        btn.disabled = false; btn.textContent = ' Sign In';
+
+        // success: store token and redirect
+        localStorage.setItem('adminToken', data.token);
+        window.location.href = '/admin-dashboard.html';
+      } catch (err) {
+        console.error('Network or server error:', err);
+        alert('Unable to connect to server');
       }
     }
   </script>
@@ -145,8 +146,8 @@
     <div class="admin-subtitle">Welcome to Bus Admin Panel</div>
     <form onsubmit="adminLogin(event)">
       <div id="adminError" class="admin-error" style="display:none;"></div>
-      <input type="email" id="adminEmail" class="admin-input" placeholder=" Admin email" required>
-      <input type="password" id="adminPassword" class="admin-input" placeholder=" Password" required>
+      <input type="email" id="emailInput" class="admin-input" placeholder=" Admin email" required>
+      <input type="password" id="passwordInput" class="admin-input" placeholder=" Password" required>
       <button id="adminBtn" class="admin-btn" type="submit"> Sign In</button>
       <div class="admin-note">💡 Main admin uses .env credentials. Others must request access.</div>
     </form>

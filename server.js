@@ -16,6 +16,16 @@ const prisma = new PrismaClient();
 
 app.use(cors());
 app.use(express.json());
+
+// JSON parse error handler — return JSON error instead of HTML
+app.use((err, req, res, next) => {
+  if (err && (err instanceof SyntaxError || err.type === 'entity.parse.failed')) {
+    console.error("Invalid JSON body:", err.message);
+    return res.status(400).json({ success: false, message: "Invalid JSON body" });
+  }
+  next(err);
+});
+
 app.use(express.static("public"));
 
 // Ensure Prisma connects at startup and disconnects gracefully on shutdown
@@ -107,6 +117,7 @@ app.get("/api/routes/:busNumber", async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
 
 // POST check-availability
 app.post("/api/check-availability", async (req, res) => {
