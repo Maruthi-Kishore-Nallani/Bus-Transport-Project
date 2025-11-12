@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Backend API for the bus availability checker",
   "main": "server.js",
-  "type": "module", 
+  "type": "module",
   "scripts": {
     "db:migrate": "prisma migrate dev",
     "db:seed": "node prisma/seed.js",
@@ -12,7 +12,7 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "@prisma/client": "^6.16.1",
+    "@prisma/client": "^6.19.0",
     "bcryptjs": "^2.4.3",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
@@ -22,11 +22,11 @@
     "express-validator": "^7.0.1",
     "geolib": "^3.3.4",
     "helmet": "^7.1.0",
-    "jsonwebtoken": "^9.0.2",
-    "prisma": "^6.16.1"
+    "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "prisma": "^6.19.0"
   },
   "keywords": [
     "bus",

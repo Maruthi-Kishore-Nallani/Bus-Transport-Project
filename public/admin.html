@@ -105,7 +105,7 @@
       align-items: center;
       gap: 8px;
     }
-    .admin-error::before { content: ''; font-size: 1.2rem; }
+    .admin-error::before { content: '⚠️'; font-size: 1.2rem; }
   </style>
   <script>
     async function adminLogin(e) {
@@ -118,7 +118,7 @@
       err.style.display = 'none';
       btn.disabled = true; btn.textContent = '⏳ Signing in...';
       try {
-        const res = await fetch('http://localhost:3000/api/admin/login', {
+        const res = await fetch('http://localhost:3000/admin/login', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password })
         });
@@ -156,5 +156,3 @@
   </div>
 </body>
 </html>
-
-
