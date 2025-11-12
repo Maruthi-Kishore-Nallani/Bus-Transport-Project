@@ -399,18 +399,17 @@ app.post('/admin/requests/:email/reject', requireAdmin, async (req, res) => {
   res.json({ success: true });
 });
 
-// Duplicate admin API under /api/admin so frontend and deployed routes both work
-import express from "express"; // ...if already imported, keep it
+// --- Duplicate admin API under /api/admin so frontend and deployed routes both work ---
+// NOTE: Do NOT re-import express here (it's already imported at the top of this file).
+// Remove any line like: import express from "express";
 
 const apiAdmin = express.Router();
 
-// token validation endpoint
-apiAdmin.get('/me', requireAdmin, async (req, res) => {
-  // requireAdmin sets req.adminEmail
+// logs
+apiAdmin.get('/me', requireAdmin, (req, res) => {
   res.json({ success: true, email: req.adminEmail });
 });
 
-// logs
 apiAdmin.get('/logs', requireAdmin, async (req, res) => {
   try {
     const logs = await prisma.availabilityLog.findMany({ orderBy: { createdAt: 'desc' } }).catch(()=>[]);
@@ -421,7 +420,6 @@ apiAdmin.get('/logs', requireAdmin, async (req, res) => {
   }
 });
 
-// buses - list
 apiAdmin.get('/buses', requireAdmin, async (req, res) => {
   try {
     const buses = await prisma.bus.findMany({ include: { stops: true } });
@@ -432,7 +430,6 @@ apiAdmin.get('/buses', requireAdmin, async (req, res) => {
   }
 });
 
-// create bus
 apiAdmin.post('/buses', requireAdmin, async (req, res) => {
   try {
     const { number, name, location, capacity } = req.body || {};
@@ -447,7 +444,6 @@ apiAdmin.post('/buses', requireAdmin, async (req, res) => {
   }
 });
 
-// delete bus by number
 apiAdmin.delete('/buses/:number', requireAdmin, async (req, res) => {
   try {
     const { number } = req.params;
@@ -459,7 +455,6 @@ apiAdmin.delete('/buses/:number', requireAdmin, async (req, res) => {
   }
 });
 
-// update bus and stops
 apiAdmin.put('/buses/:number', requireAdmin, async (req, res) => {
   try {
     const { number } = req.params;
