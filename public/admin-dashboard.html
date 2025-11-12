@@ -472,7 +472,7 @@
 // Fetch all buses from the database and show them in the UI
 async function loadBuses() {
   try {
-    const data = await makeApiCall('/api/routes', 'GET');
+    const data = await makeApiCall('/routes', 'GET');
 
     const container = document.getElementById('busList');
     container.innerHTML = '';
