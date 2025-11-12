@@ -468,23 +468,44 @@
       }
     }
 
-    async function loadBuses() {
-      try {
-        const result = await makeApiCall('/admin/buses', 'GET', null, true);
-        currentBuses = result.buses || [];
-        // Build display numbering 1..N based on sorted real numbers
-        try {
-          const sorted = [...currentBuses].sort((a, b) => Number(a.number) - Number(b.number));
-          busNumberToDisplay = new Map();
-          sorted.forEach((b, i) => busNumberToDisplay.set(String(b.number), String(i + 1)));
-        } catch (e) {
-          busNumberToDisplay = new Map();
-        }
-        renderBuses();
-      } catch (error) {
-        console.error('Failed to load buses:', error);
-      }
+// Load all buses from backend and render in UI
+async function loadBuses() {
+  try {
+    const res = await fetch('/api/routes'); // ✅ uses your working route endpoint
+    const data = await res.json();
+
+    const listContainer = document.getElementById('busList'); // Ensure <div id="busList"> exists
+    listContainer.innerHTML = "";
+
+    if (!data.success || !data.routes || data.routes.length === 0) {
+      listContainer.innerHTML = `<p style="text-align:center; color:#666;">No buses found in the database.</p>`;
+      return;
     }
+
+    data.routes.forEach(bus => {
+      const busCard = document.createElement('div');
+      busCard.className = "bus-card";
+      busCard.innerHTML = `
+        <div class="bus-info">
+          <h3>🚌 ${bus.number} - ${bus.name}</h3>
+          <p><b>Location:</b> ${bus.location}</p>
+          <p><b>Capacity:</b> ${bus.capacity || 'N/A'}</p>
+        </div>
+        <div class="bus-actions">
+          <button class="edit-btn" data-id="${bus.id}">✏️ Edit</button>
+          <button class="stops-btn" data-id="${bus.id}">🗺️ Edit Stops</button>
+          <button class="delete-btn" data-id="${bus.id}">🗑️ Delete</button>
+        </div>
+      `;
+      listContainer.appendChild(busCard);
+    });
+  } catch (err) {
+    console.error("Error loading buses:", err);
+    const listContainer = document.getElementById('busList');
+    listContainer.innerHTML = `<p style="text-align:center; color:red;">Failed to load buses. Check server.</p>`;
+  }
+}
+
 
     function filterLogsByStatus() {
       statusFilterValue = document.getElementById('statusFilter').value;
