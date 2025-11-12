@@ -8,8 +8,9 @@ const API_BASE = window.location.origin;
 async function loadBusesFromDatabase() {
   try {
     // Show loading state
-    container.innerHTML = '<div class="loading">Loading bus data...</div>';
     const container = document.getElementById("busContainer");
+    container.innerHTML = '<div class="loading">Loading bus data...</div>';
+
     if (!container) return; // Prevent errors if script loads on pages without busContainer
     
     const response = await fetch(`${API_BASE}/api/routes`);
