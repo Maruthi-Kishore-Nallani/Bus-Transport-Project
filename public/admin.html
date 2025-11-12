@@ -112,9 +112,18 @@
       e.preventDefault();
       const email = document.getElementById('emailInput').value.trim();
       const password = document.getElementById('passwordInput').value;
+      const errorEl = document.getElementById('adminError');
+      const btn = document.getElementById('adminBtn');
+
+      errorEl.style.display = 'none';
+      errorEl.textContent = '';
+
+      // Use the current origin so deployed site doesn't call localhost
+      const endpoint = `${window.location.origin}/admin/login`;
 
       try {
-        const res = await fetch('/admin/login', {
+        btn.disabled = true;
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -123,19 +132,24 @@
           body: JSON.stringify({ email, password })
         });
 
-        const data = await res.json();
+        const data = await res.json().catch(() => ({ success: false, message: 'Invalid JSON response' }));
+
         if (!res.ok) {
-          // show error to user
-          alert(data?.message || 'Login failed');
+          errorEl.textContent = data?.message || 'Login failed';
+          errorEl.style.display = 'flex';
+          btn.disabled = false;
           return;
         }
 
-        // success: store token and redirect
+        // success
         localStorage.setItem('adminToken', data.token);
         window.location.href = '/admin-dashboard.html';
       } catch (err) {
         console.error('Network or server error:', err);
-        alert('Unable to connect to server');
+        errorEl.textContent = 'Unable to connect to server';
+        errorEl.style.display = 'flex';
+      } finally {
+        btn.disabled = false;
       }
     }
   </script>
