@@ -469,42 +469,87 @@
     }
 
 // Load all buses from backend and render in UI
+// Fetch all buses from the database and show them in the UI
 async function loadBuses() {
   try {
-    const res = await fetch('/api/routes'); // ✅ uses your working route endpoint
-    const data = await res.json();
+    const data = await makeApiCall('/api/routes', 'GET');
 
-    const listContainer = document.getElementById('busList'); // Ensure <div id="busList"> exists
-    listContainer.innerHTML = "";
+    const container = document.getElementById('busList');
+    container.innerHTML = '';
 
     if (!data.success || !data.routes || data.routes.length === 0) {
-      listContainer.innerHTML = `<p style="text-align:center; color:#666;">No buses found in the database.</p>`;
+      container.innerHTML = `<p style="text-align:center; color:#555;">No buses found in the database.</p>`;
       return;
     }
 
+    // Render each bus card
     data.routes.forEach(bus => {
-      const busCard = document.createElement('div');
-      busCard.className = "bus-card";
-      busCard.innerHTML = `
-        <div class="bus-info">
-          <h3>🚌 ${bus.number} - ${bus.name}</h3>
-          <p><b>Location:</b> ${bus.location}</p>
-          <p><b>Capacity:</b> ${bus.capacity || 'N/A'}</p>
-        </div>
-        <div class="bus-actions">
-          <button class="edit-btn" data-id="${bus.id}">✏️ Edit</button>
-          <button class="stops-btn" data-id="${bus.id}">🗺️ Edit Stops</button>
-          <button class="delete-btn" data-id="${bus.id}">🗑️ Delete</button>
+      const card = document.createElement('div');
+      card.className = 'bus-card';
+      card.style.cssText = `
+        border:1px solid #e5e7eb; 
+        border-radius:10px; 
+        padding:16px; 
+        margin:10px 0; 
+        background:#f9fafb;
+        box-shadow:0 2px 6px rgba(0,0,0,0.05);
+      `;
+      card.innerHTML = `
+        <h3>🚌 ${bus.number} - ${bus.name}</h3>
+        <p><b>Location:</b> ${bus.location}</p>
+        <p><b>Capacity:</b> ${bus.capacity || 'Not set'}</p>
+        <div style="margin-top:10px;">
+          <button class="edit-btn" data-id="${bus.number}" style="padding:6px 10px;">✏️ Edit</button>
+          <button class="stops-btn" data-id="${bus.number}" style="padding:6px 10px;">🗺️ Edit Stops</button>
+          <button class="delete-btn" data-id="${bus.number}" style="padding:6px 10px;">🗑️ Delete</button>
         </div>
       `;
-      listContainer.appendChild(busCard);
+      container.appendChild(card);
     });
   } catch (err) {
-    console.error("Error loading buses:", err);
-    const listContainer = document.getElementById('busList');
-    listContainer.innerHTML = `<p style="text-align:center; color:red;">Failed to load buses. Check server.</p>`;
+    console.error('Error loading buses:', err);
+    const container = document.getElementById('busList');
+    container.innerHTML = `<p style="text-align:center; color:red;">⚠️ Error loading buses. Please check server logs.</p>`;
   }
 }
+
+// Handle button actions inside bus cards
+document.addEventListener('click', async (e) => {
+  const target = e.target;
+
+  // Edit bus details
+  if (target.classList.contains('edit-btn')) {
+    const id = target.dataset.id;
+    alert(`Edit Bus ID: ${id} (feature coming soon)`);
+    // Here you can open an edit modal pre-filled with bus info
+  }
+
+  // Edit stops
+  if (target.classList.contains('stops-btn')) {
+    const id = target.dataset.id;
+    alert(`Edit stops for Bus ID: ${id} (feature coming soon)`);
+  }
+
+  // Delete bus
+  if (target.classList.contains('delete-btn')) {
+    const id = target.dataset.id;
+    if (!confirm("Are you sure you want to delete this bus?")) return;
+
+    try {
+      const res = await fetch(`/api/admin/buses/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        alert("🗑️ Bus deleted successfully!");
+        await loadBuses(); // refresh list
+      } else {
+        alert("❌ Failed to delete bus: " + (data.message || ""));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error deleting bus. Check console.");
+    }
+  }
+});
 
 
     function filterLogsByStatus() {
@@ -1003,6 +1048,10 @@ window.addEventListener('load', async () => {
     <!-- Buses Pane -->
     <div id="busesPane" class="card" data-pane style="display:none;">
       <div class="section-title">🚌 Manage Buses</div>
+      <!-- Bus list display -->
+      <div id="busList" class="bus-list" style="margin-top:20px;"></div>
+
+
       <form onsubmit="addBus(event)" class="grid-3" style="margin-bottom:10px;">
         <input id="busNumber" class="form-input" placeholder="Bus Number (e.g., 101)" required>
         <input id="busName" class="form-input" placeholder="Bus Name (e.g., Bus 101)" required>
@@ -1011,7 +1060,6 @@ window.addEventListener('load', async () => {
         <div></div>
         <div style="text-align:right;"><button class="btn primary" type="submit">➕ Add Bus</button></div>
       </form>
-      <div id="busList" class="list"></div>
     </div>
 
     <!-- Settings Pane -->
