@@ -28,7 +28,7 @@
       const msg = document.getElementById('msg');
       msg.style.display = 'none'; msg.textContent=''; msg.className='msg';
       try {
-        const res = await fetch('http://localhost:3000/api/admin/signup-request', {
+        const res = await fetch(`${window.location.origin}/admin/signup`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, email, password })
@@ -61,5 +61,3 @@
   </div>
 </body>
 </html>
-
-

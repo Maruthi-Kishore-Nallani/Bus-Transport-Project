@@ -5,6 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import geolib from "geolib";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import fs from "fs/promises"; // <-- ensure this import is at the top with other imports
 
 dotenv.config();
 const app = express();
@@ -170,9 +171,112 @@ app.post("/api/check-availability", async (req, res) => {
   }
 });
 
-// Settings
-app.get("/api/settings", (req, res) => {
-  res.json({ success: true, settings: { siteTitle: "BUS TRANSPORT DETAILS", contact: { address: "VR Siddhartha Engineering College, Vijayawada", phone: "+91 98765 43210", email: "support@vrsecbus.in" } } });
+// ---------------- Site settings persistence & config endpoint ----------------
+
+const SETTINGS_FILE = "./settings.json";
+
+async function readSettingsFromFile() {
+  try {
+    const content = await fs.readFile(SETTINGS_FILE, "utf8");
+    return JSON.parse(content);
+  } catch (e) {
+    return null;
+  }
+}
+async function writeSettingsToFile(obj) {
+  try {
+    await fs.writeFile(SETTINGS_FILE, JSON.stringify(obj, null, 2), "utf8");
+    return true;
+  } catch (e) {
+    console.warn("Could not write settings file:", e.message || e);
+    return false;
+  }
+}
+
+// GET public settings (used by user side)
+app.get("/api/settings", async (req, res) => {
+  try {
+    // prefer DB model if present
+    if (prisma.setting) {
+      // try common patterns
+      try {
+        // attempt findUnique by id/key - adjust if your schema differs
+        const s = await prisma.setting.findFirst();
+        if (s) {
+          // if your model stores JSON in a "data" or "value" column, adapt accordingly
+          return res.json({ success: true, settings: s.data ?? s.value ?? s });
+        }
+      } catch (e) {
+        console.warn("Prisma setting read failed:", e.message || e);
+      }
+    }
+
+    // fallback to file
+    const fileSettings = await readSettingsFromFile();
+    if (fileSettings) return res.json({ success: true, settings: fileSettings });
+
+    // final fallback: return a default settings object
+    return res.json({
+      success: true,
+      settings: {
+        siteTitle: "BUS TRANSPORT DETAILS",
+        mapOptions: { zoom: 13 },
+        contact: { address: "VR Siddhartha Engineering College, Vijayawada" }
+      }
+    });
+  } catch (err) {
+    console.error("GET /api/settings error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// Admin: save settings (persist to DB if model exists, otherwise file)
+app.put("/api/admin/settings", requireAdmin, async (req, res) => {
+  try {
+    const newSettings = req.body || {};
+    // try DB upsert if model exists
+    if (prisma.setting) {
+      try {
+        // adjust field names based on your Prisma schema
+        // attempt upsert by id = 1 (if integer PK) otherwise by key
+        // try both patterns safely
+        try {
+          const upserted = await prisma.setting.upsert({
+            where: { id: 1 },
+            update: { data: newSettings },
+            create: { id: 1, data: newSettings },
+          });
+          return res.json({ success: true, settings: upserted.data ?? newSettings });
+        } catch (_) {
+          // fallback to key-based upsert
+          const upserted2 = await prisma.setting.upsert({
+            where: { key: "site" },
+            update: { data: newSettings },
+            create: { key: "site", data: newSettings },
+          });
+          return res.json({ success: true, settings: upserted2.data ?? newSettings });
+        }
+      } catch (e) {
+        console.warn("Prisma upsert attempt failed:", e.message || e);
+        // fallthrough to file write
+      }
+    }
+
+    // fallback: save to file (note: ephemeral on Railway)
+    await writeSettingsToFile(newSettings);
+    return res.json({ success: true, settings: newSettings, warning: "Saved to file (ephemeral). Use DB for persistent storage." });
+  } catch (err) {
+    console.error("PUT /api/admin/settings error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// Expose config for client (maps API key). This returns the Maps key (normal for client side).
+app.get("/config", (req, res) => {
+  res.json({
+    success: true,
+    GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY || ""
+  });
 });
 
 /* ---------------- Admin helpers & endpoints (must be BEFORE 404) ---------------- */
@@ -181,7 +285,7 @@ app.get("/api/settings", (req, res) => {
 const JWT_SECRET = process.env.ADMIN_JWT_SECRET || process.env.ADMIN_PASSWORD || "dev_admin_secret";
 function createAdminToken(email) {
   // 2 hour expiry
-  return jwt.sign({ email }, JWT_SECRET, { expiresIn: "2h" });
+  return jwt.sign({ email, role: 'admin' }, JWT_SECRET, { expiresIn: "2h" });
 }
 function verifyAdminToken(token) {
   try {
@@ -195,7 +299,7 @@ function requireAdmin(req, res, next) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : (req.query.token || null);
   if (!token) return res.status(401).json({ success: false, message: "Missing token" });
-  const payload = verifyAdminToken(token);
+  const payload = verifyAdminToken(token); // This is the decoded JWT payload
   if (!payload) return res.status(401).json({ success: false, message: "Invalid or expired token" });
   req.adminEmail = payload.email;
   next();
@@ -207,15 +311,12 @@ app.post("/admin/login", async (req, res) => {
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ success: false, message: "Missing credentials" });
 
-    const ENV_EMAIL = process.env.ADMIN_EMAIL;
-    const ENV_PASS = process.env.ADMIN_PASSWORD;
-    if (ENV_EMAIL && ENV_PASS) {
-      if (email === ENV_EMAIL && password === ENV_PASS) {
-        const token = createAdminToken(email);
-        return res.json({ success: true, token });
-      } else {
-        return res.status(401).json({ success: false, message: "Invalid admin credentials" });
-      }
+    const ENV_EMAIL = process.env.MAIN_ADMIN_EMAIL;
+    const ENV_PASS = process.env.MAIN_ADMIN_PASSWORD;
+    if (ENV_EMAIL && email === ENV_EMAIL) {
+      if (password !== ENV_PASS) return res.status(401).json({ success: false, message: "Invalid password" });
+      const token = createAdminToken(email);
+      return res.json({ success: true, token });
     }
 
     // fallback to DB admin
@@ -244,37 +345,6 @@ app.get("/admin/me", (req, res) => {
   const payload = verifyAdminToken(token);
   if (!payload) return res.status(401).json({ success: false, message: "Invalid or expired token" });
   res.json({ success: true, email: payload.email });
-});
-
-// Example protected bus update endpoints (minimal)
-app.patch("/api/buses/:id", requireAdmin, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const data = req.body || {};
-    const updated = await prisma.bus.update({ where: { id }, data });
-    res.json({ success: true, bus: updated });
-  } catch (err) {
-    console.error("Error PATCH /api/buses/:id", err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
-app.put("/api/buses/:id/stops", requireAdmin, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const stops = Array.isArray(req.body) ? req.body : [];
-    // naive replace: delete existing stops for bus, then create new
-    await prisma.stop.deleteMany({ where: { busId: id } });
-    const created = [];
-    for (const s of stops) {
-      const c = await prisma.stop.create({ data: { busId: id, name: s.name || "", lat: s.lat || 0, lng: s.lng || 0, period: s.period || "MORNING", order: s.order || 0 } });
-      created.push(c);
-    }
-    res.json({ success: true, stops: created });
-  } catch (err) {
-    console.error("Error PUT /api/buses/:id/stops", err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
 });
 
 // --- Admin management endpoints (place BEFORE 404 catch-all) ---
@@ -462,7 +532,7 @@ apiAdmin.put('/buses/:number', requireAdmin, async (req, res) => {
     const updatedBus = await prisma.bus.update({
       where: { number: String(number) },
       data: {
-        name: payload.name,
+        name: payload.name, // This should be payload.name, not payload.name
         location: payload.location,
         capacity: payload.capacity,
         currentOccupancy: payload.currentOccupancy,
