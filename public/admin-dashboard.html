@@ -371,69 +371,56 @@
      }
   </style>
   <script>
-    const API_BASE = 'http://localhost:3000/api';
-    let currentBuses = [];
-    // Map real bus number -> display single-series number
-    let busNumberToDisplay = new Map();
-    let currentLogs = [];
-    let statusFilterValue = 'all'; // To hold the current filter status
+  // Use site origin so deployed site doesn't call localhost
+  const API_BASE = `${window.location.origin}/api`;
+  let currentBuses = [];
+  // Map real bus number -> display single-series number
+  let busNumberToDisplay = new Map();
+  let currentLogs = [];
+  let statusFilterValue = 'all'; // To hold the current filter status
 
-    function ensureAuth() {
-      const token = localStorage.getItem('admin_token');
-      if (!token) { 
-        window.location.href = 'admin.html'; 
-        return false;
-      }
-      return true;
+  // Use same localStorage key used by login
+  const ADMIN_TOKEN_KEY = 'adminToken';
+
+  function ensureAuth() {
+    const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+    if (!token) {
+      window.location.href = '/admin.html';
+      return false;
     }
+    return true;
+  }
 
-    function logout() { 
-      localStorage.removeItem('admin_token'); 
-      window.location.href = 'admin.html'; 
+  function logout() {
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    window.location.href = '/admin.html';
+  }
+
+  async function makeApiCall(endpoint, method = 'GET', data = null) {
+    const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+    const options = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    };
+    if (token) options.headers['Authorization'] = `Bearer ${token}`;
+
+    if (data) options.body = JSON.stringify(data);
+
+    try {
+      const response = await fetch(`${API_BASE}${endpoint}`, options);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.message || 'API call failed');
+      }
+      return result;
+    } catch (error) {
+      console.error('API Error:', error);
+      showError(error.message);
+      throw error;
     }
-
-    function switchTab(tab) {
-      document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('[data-pane]').forEach(p => p.style.display = 'none');
-      document.getElementById(tab).style.display = 'block';
-      document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-      if (tab === 'settingsPane') {
-        loadSettings();
-      }
-      if (tab === 'approvalsPane') {
-        loadApprovals();
-      }
-    }
-
-    async function makeApiCall(endpoint, method = 'GET', data = null) {
-      const token = localStorage.getItem('admin_token');
-      const options = {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      };
-      
-      if (data) {
-        options.body = JSON.stringify(data);
-      }
-
-      try {
-        const response = await fetch(`${API_BASE}${endpoint}`, options);
-        const result = await response.json();
-        
-        if (!response.ok) {
-          throw new Error(result.message || 'API call failed');
-        }
-        
-        return result;
-      } catch (error) {
-        console.error('API Error:', error);
-        showError(error.message);
-        throw error;
-      }
-    }
+  }
 
     function showError(message) {
       const errorDiv = document.createElement('div');
