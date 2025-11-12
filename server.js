@@ -278,6 +278,19 @@ app.get("/config", (req, res) => {
     GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY || ""
   });
 });
+// --- Provide Google Maps API key under /api/maps-key for frontend compatibility ---
+app.get("/api/maps-key", (req, res) => {
+  try {
+    const key = process.env.GOOGLE_MAPS_API_KEY;
+    if (!key) {
+      return res.status(500).json({ success: false, message: "API key not configured" });
+    }
+    res.json({ success: true, key });
+  } catch (err) {
+    console.error("Error retrieving Maps API key:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
 
 /* ---------------- Admin helpers & endpoints (must be BEFORE 404) ---------------- */
 
