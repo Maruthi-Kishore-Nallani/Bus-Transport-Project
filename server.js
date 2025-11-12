@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import geolib from "geolib";
 import crypto from "crypto";
+import jwt from "jsonwebtoken";
 
 dotenv.config();
 const app = express();
@@ -176,32 +177,31 @@ app.get("/api/settings", (req, res) => {
 
 /* ---------------- Admin helpers & endpoints (must be BEFORE 404) ---------------- */
 
-const adminSessions = new Map(); // token -> { email, expires }
-
+// --- JWT-based admin tokens (replace in-memory sessions) ---
+const JWT_SECRET = process.env.ADMIN_JWT_SECRET || process.env.ADMIN_PASSWORD || "dev_admin_secret";
 function createAdminToken(email) {
-  const token = crypto.randomBytes(32).toString("hex");
-  const expires = Date.now() + 1000 * 60 * 60;
-  adminSessions.set(token, { email, expires });
-  return token;
+  // 2 hour expiry
+  return jwt.sign({ email }, JWT_SECRET, { expiresIn: "2h" });
 }
-
 function verifyAdminToken(token) {
-  const s = adminSessions.get(token);
-  if (!s) return null;
-  if (s.expires < Date.now()) { adminSessions.delete(token); return null; }
-  return s;
+  try {
+    return jwt.verify(token, JWT_SECRET); // returns payload { email, iat, exp }
+  } catch (e) {
+    return null;
+  }
 }
 
 function requireAdmin(req, res, next) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : (req.query.token || null);
   if (!token) return res.status(401).json({ success: false, message: "Missing token" });
-  const session = verifyAdminToken(token);
-  if (!session) return res.status(401).json({ success: false, message: "Invalid or expired token" });
-  req.adminEmail = session.email;
+  const payload = verifyAdminToken(token);
+  if (!payload) return res.status(401).json({ success: false, message: "Invalid or expired token" });
+  req.adminEmail = payload.email;
   next();
 }
 
+// Update POST /admin/login to return JWT (keep existing credential checks)
 app.post("/admin/login", async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -210,50 +210,40 @@ app.post("/admin/login", async (req, res) => {
     const ENV_EMAIL = process.env.ADMIN_EMAIL;
     const ENV_PASS = process.env.ADMIN_PASSWORD;
     if (ENV_EMAIL && ENV_PASS) {
-      if (email === ENV_EMAIL && password === ENV_PASS) return res.json({ success: true, token: createAdminToken(email) });
-      return res.status(401).json({ success: false, message: "Invalid admin credentials" });
+      if (email === ENV_EMAIL && password === ENV_PASS) {
+        const token = createAdminToken(email);
+        return res.json({ success: true, token });
+      } else {
+        return res.status(401).json({ success: false, message: "Invalid admin credentials" });
+      }
     }
 
-    // fallback to DB
+    // fallback to DB admin
     try {
       const admin = await prisma.admin?.findUnique({ where: { email } });
       if (!admin) return res.status(401).json({ success: false, message: "Admin not found" });
+      // If you store hashed passwords, use bcrypt.compare here
       if (admin.password !== password) return res.status(401).json({ success: false, message: "Invalid password" });
-      return res.json({ success: true, token: createAdminToken(email) });
+      const token = createAdminToken(email);
+      return res.json({ success: true, token });
     } catch (e) {
       console.warn("Prisma admin lookup failed:", e.message || e);
       return res.status(500).json({ success: false, message: "Server error" });
     }
   } catch (err) {
-    console.error("Error /admin/login:", err);
+    console.error("Admin login error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-app.post("/admin/signup", async (req, res) => {
-  try {
-    const { name, email, reason } = req.body || {};
-    if (!email) return res.status(400).json({ success: false, message: "Email required" });
-    try {
-      if (prisma.adminRequest) {
-        await prisma.adminRequest.create({ data: { name: name || null, email, reason: reason || null } });
-        return res.json({ success: true, message: "Request recorded" });
-      }
-    } catch (e) { console.warn("adminRequest create failed:", e.message || e); }
-    res.json({ success: true, message: "Request received; contact main admin" });
-  } catch (err) {
-    console.error("Error /admin/signup:", err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
+// Update GET /admin/me to verify JWT
 app.get("/admin/me", (req, res) => {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : (req.query.token || null);
   if (!token) return res.status(401).json({ success: false, message: "Missing token" });
-  const session = verifyAdminToken(token);
-  if (!session) return res.status(401).json({ success: false, message: "Invalid or expired token" });
-  res.json({ success: true, email: session.email });
+  const payload = verifyAdminToken(token);
+  if (!payload) return res.status(401).json({ success: false, message: "Invalid or expired token" });
+  res.json({ success: true, email: payload.email });
 });
 
 // Example protected bus update endpoints (minimal)
