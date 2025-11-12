@@ -382,6 +382,25 @@
   // Use same localStorage key used by login
   const ADMIN_TOKEN_KEY = 'adminToken';
 
+  // Add switchTab implementation (was missing) ------------------------------------------------
+  function switchTab(tabId) {
+    // hide all panes
+    document.querySelectorAll('[data-pane]').forEach(el => el.style.display = 'none');
+    // show target pane
+    const pane = document.getElementById(tabId);
+    if (pane) pane.style.display = 'block';
+
+    // update tab button active state
+    document.querySelectorAll('.admin-tab').forEach(btn => {
+      const isActive = btn.dataset.tab === tabId;
+      btn.classList.toggle('active', isActive);
+    });
+
+    // optional: scroll to top of dashboard when switching
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  // -----------------------------------------------------------------------------------------
+
   function ensureAuth() {
     const token = localStorage.getItem(ADMIN_TOKEN_KEY);
     if (!token) {
