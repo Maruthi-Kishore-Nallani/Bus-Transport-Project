@@ -277,6 +277,128 @@ app.put("/api/buses/:id/stops", requireAdmin, async (req, res) => {
   }
 });
 
+// --- Admin management endpoints (place BEFORE 404 catch-all) ---
+app.get('/admin/logs', requireAdmin, async (req, res) => {
+  try {
+    const logs = await prisma.availabilityLog.findMany({ orderBy: { createdAt: 'desc' } }).catch(()=>[]);
+    res.json({ success: true, logs });
+  } catch (e) {
+    console.error("GET /admin/logs error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+app.get('/admin/buses', requireAdmin, async (req, res) => {
+  try {
+    const buses = await prisma.bus.findMany({ include: { stops: true } });
+    res.json({ success: true, buses });
+  } catch (e) {
+    console.error("GET /admin/buses error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+app.post('/admin/buses', requireAdmin, async (req, res) => {
+  try {
+    const { number, name, location, capacity } = req.body || {};
+    if (!number) return res.status(400).json({ success: false, message: "Bus number required" });
+    const bus = await prisma.bus.create({
+      data: { number: String(number), name: name || null, location: location || null, capacity: Number(capacity) || 0 }
+    });
+    res.json({ success: true, bus });
+  } catch (e) {
+    console.error("POST /admin/buses error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+app.delete('/admin/buses/:number', requireAdmin, async (req, res) => {
+  try {
+    const { number } = req.params;
+    await prisma.bus.delete({ where: { number: String(number) } });
+    res.json({ success: true });
+  } catch (e) {
+    console.error("DELETE /admin/buses/:number error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+app.put('/admin/buses/:number', requireAdmin, async (req, res) => {
+  try {
+    const { number } = req.params;
+    const payload = req.body || {};
+
+    // update bus meta
+    const updatedBus = await prisma.bus.update({
+      where: { number: String(number) },
+      data: {
+        name: payload.name,
+        location: payload.location,
+        capacity: payload.capacity,
+        currentOccupancy: payload.currentOccupancy,
+        driverName: payload.driverName,
+        driverPhone: payload.driverPhone,
+        liveLocationUrl: payload.liveLocationUrl,
+      },
+    });
+
+    // replace stops if provided
+    if (Array.isArray(payload.morningStops) || Array.isArray(payload.eveningStops)) {
+      await prisma.stop.deleteMany({ where: { busId: updatedBus.id } });
+
+      const createData = [];
+      if (Array.isArray(payload.morningStops)) {
+        payload.morningStops.forEach((s, i) => createData.push({ busId: updatedBus.id, name: s.name, lat: s.lat, lng: s.lng, period: "MORNING", order: i + 1 }));
+      }
+      if (Array.isArray(payload.eveningStops)) {
+        payload.eveningStops.forEach((s, i) => createData.push({ busId: updatedBus.id, name: s.name, lat: s.lat, lng: s.lng, period: "EVENING", order: i + 1 }));
+      }
+      if (createData.length) {
+        // createMany may not be supported depending on Prisma version/DB; fallback handled
+        try { await prisma.stop.createMany({ data: createData }); } catch { 
+          // fallback to individual creates
+          for (const d of createData) await prisma.stop.create({ data: d });
+        }
+      }
+    }
+
+    const busWithStops = await prisma.bus.findUnique({ where: { id: updatedBus.id }, include: { stops: true } });
+    res.json({ success: true, bus: busWithStops });
+  } catch (e) {
+    console.error("PUT /admin/buses/:number error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// Admin request approvals (optional)
+app.get('/admin/requests', requireAdmin, async (req, res) => {
+  try {
+    const reqs = await prisma.adminRequest?.findMany() || [];
+    res.json({ success: true, requests: reqs });
+  } catch (e) {
+    console.error("GET /admin/requests error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+app.post('/admin/requests/:email/approve', requireAdmin, async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    // create admin user if your schema has admin model
+    if (prisma.admin) {
+      await prisma.admin.create({ data: { email, password: '' } }).catch(()=>{});
+    }
+    res.json({ success: true });
+  } catch (e) {
+    console.error("POST approve error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+app.post('/admin/requests/:email/reject', requireAdmin, async (req, res) => {
+  res.json({ success: true });
+});
+
 /* ---------------- 404 catch-all and server start (last) ---------------- */
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });
