@@ -6,6 +6,7 @@ import geolib from "geolib";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import fs from "fs/promises"; // <-- ensure this import is at the top with other imports
+import bcrypt from "bcryptjs";
 
 dotenv.config();
 const app = express();
@@ -174,6 +175,7 @@ app.post("/api/check-availability", async (req, res) => {
 // ---------------- Site settings persistence & config endpoint ----------------
 
 const SETTINGS_FILE = "./settings.json";
+const PENDING_ADMINS_FILE = "./pending_admins.json";
 
 async function readSettingsFromFile() {
   try {
@@ -296,9 +298,9 @@ app.get("/api/maps-key", (req, res) => {
 
 // --- JWT-based admin tokens (replace in-memory sessions) ---
 const JWT_SECRET = process.env.ADMIN_JWT_SECRET || process.env.ADMIN_PASSWORD || "dev_admin_secret";
-function createAdminToken(email) {
+function createAdminToken(email, isSuperAdmin = false) {
   // 2 hour expiry
-  return jwt.sign({ email, role: 'admin' }, JWT_SECRET, { expiresIn: "2h" });
+  return jwt.sign({ email, role: 'admin', isSuperAdmin }, JWT_SECRET, { expiresIn: "2h" });
 }
 function verifyAdminToken(token) {
   try {
@@ -315,7 +317,37 @@ function requireAdmin(req, res, next) {
   const payload = verifyAdminToken(token); // This is the decoded JWT payload
   if (!payload) return res.status(401).json({ success: false, message: "Invalid or expired token" });
   req.adminEmail = payload.email;
+  req.isSuperAdmin = payload.isSuperAdmin || false;
   next();
+}
+
+async function requireSuperAdmin(req, res, next) {
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : (req.query.token || null);
+  if (!token) return res.status(401).json({ success: false, message: "Missing token" });
+  const payload = verifyAdminToken(token);
+  if (!payload) return res.status(401).json({ success: false, message: "Invalid or expired token" });
+  
+  // Check if main admin from env
+  const ENV_EMAIL = process.env.MAIN_ADMIN_EMAIL;
+  if (ENV_EMAIL && payload.email === ENV_EMAIL) {
+    req.adminEmail = payload.email;
+    req.isSuperAdmin = true;
+    return next();
+  }
+  
+  // Check if superadmin in DB
+  try {
+    const admin = await prisma.admin?.findUnique({ where: { email: payload.email } });
+    if (!admin || !admin.isSuperAdmin) {
+      return res.status(403).json({ success: false, message: "Superadmin access required" });
+    }
+    req.adminEmail = payload.email;
+    req.isSuperAdmin = true;
+    next();
+  } catch (e) {
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
 }
 
 // Update POST /admin/login to return JWT (keep existing credential checks)
@@ -328,18 +360,21 @@ app.post("/admin/login", async (req, res) => {
     const ENV_PASS = process.env.MAIN_ADMIN_PASSWORD;
     if (ENV_EMAIL && email === ENV_EMAIL) {
       if (password !== ENV_PASS) return res.status(401).json({ success: false, message: "Invalid password" });
-      const token = createAdminToken(email);
-      return res.json({ success: true, token });
+      const token = createAdminToken(email, true); // Main admin is always superadmin
+      return res.json({ success: true, token, admin: { email, isSuperAdmin: true } });
     }
 
-    // fallback to DB admin
+    // Check DB admin
     try {
       const admin = await prisma.admin?.findUnique({ where: { email } });
       if (!admin) return res.status(401).json({ success: false, message: "Admin not found" });
-      // If you store hashed passwords, use bcrypt.compare here
-      if (admin.password !== password) return res.status(401).json({ success: false, message: "Invalid password" });
-      const token = createAdminToken(email);
-      return res.json({ success: true, token });
+      
+      // Compare hashed password
+      const passwordMatch = await bcrypt.compare(password, admin.password);
+      if (!passwordMatch) return res.status(401).json({ success: false, message: "Invalid password" });
+      
+      const token = createAdminToken(email, admin.isSuperAdmin || false);
+      return res.json({ success: true, token, admin: { email, isSuperAdmin: admin.isSuperAdmin || false } });
     } catch (e) {
       console.warn("Prisma admin lookup failed:", e.message || e);
       return res.status(500).json({ success: false, message: "Server error" });
@@ -351,13 +386,30 @@ app.post("/admin/login", async (req, res) => {
 });
 
 // Update GET /admin/me to verify JWT
-app.get("/admin/me", (req, res) => {
+app.get("/admin/me", async (req, res) => {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : (req.query.token || null);
   if (!token) return res.status(401).json({ success: false, message: "Missing token" });
   const payload = verifyAdminToken(token);
   if (!payload) return res.status(401).json({ success: false, message: "Invalid or expired token" });
-  res.json({ success: true, email: payload.email });
+  
+  // Check if main admin
+  const ENV_EMAIL = process.env.MAIN_ADMIN_EMAIL;
+  if (ENV_EMAIL && payload.email === ENV_EMAIL) {
+    return res.json({ success: true, admin: { email: payload.email, isSuperAdmin: true } });
+  }
+  
+  // Check DB admin
+  try {
+    const admin = await prisma.admin?.findUnique({ where: { email: payload.email } });
+    if (admin) {
+      return res.json({ success: true, admin: { email: admin.email, isSuperAdmin: admin.isSuperAdmin || false } });
+    }
+  } catch (e) {
+    console.warn("Prisma admin lookup failed:", e.message || e);
+  }
+  
+  res.json({ success: true, admin: { email: payload.email, isSuperAdmin: payload.isSuperAdmin || false } });
 });
 
 // --- Admin management endpoints (place BEFORE 404 catch-all) ---
@@ -453,33 +505,168 @@ app.put('/admin/buses/:number', requireAdmin, async (req, res) => {
   }
 });
 
-// Admin request approvals (optional)
-app.get('/admin/requests', requireAdmin, async (req, res) => {
+// Admin signup request endpoint
+app.post('/admin/signup', async (req, res) => {
   try {
-    const reqs = await prisma.adminRequest?.findMany() || [];
-    res.json({ success: true, requests: reqs });
+    const { name, email, password } = req.body || {};
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ success: false, message: "Invalid email format" });
+    }
+
+    // Check if admin already exists
+    const ENV_EMAIL = process.env.MAIN_ADMIN_EMAIL;
+    if (ENV_EMAIL && email === ENV_EMAIL) {
+      return res.status(400).json({ success: false, message: "This email is already registered as main admin" });
+    }
+
+    try {
+      const existingAdmin = await prisma.admin?.findUnique({ where: { email } });
+      if (existingAdmin) {
+        return res.status(400).json({ success: false, message: "Admin with this email already exists" });
+      }
+    } catch (e) {
+      // Continue if DB check fails
+    }
+
+    // Read existing requests
+    let requests = [];
+    try {
+      const content = await fs.readFile(PENDING_ADMINS_FILE, "utf8");
+      requests = JSON.parse(content);
+    } catch (e) {
+      // File doesn't exist or is invalid, start with empty array
+      requests = [];
+    }
+
+    // Check if request already exists
+    if (requests.some(r => r.email === email)) {
+      return res.status(400).json({ success: false, message: "Request already submitted. Please wait for approval." });
+    }
+
+    // Add new request
+    requests.push({
+      name,
+      email,
+      password, // Store plain password temporarily (will be hashed on approval)
+      createdAt: new Date().toISOString()
+    });
+
+    // Save to file
+    await fs.writeFile(PENDING_ADMINS_FILE, JSON.stringify(requests, null, 2), "utf8");
+
+    res.json({ success: true, message: "Signup request submitted successfully. Please wait for admin approval." });
+  } catch (err) {
+    console.error("POST /admin/signup error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// Admin request approvals (superadmin only)
+app.get('/admin/requests', requireSuperAdmin, async (req, res) => {
+  try {
+    let requests = [];
+    try {
+      const content = await fs.readFile(PENDING_ADMINS_FILE, "utf8");
+      requests = JSON.parse(content);
+    } catch (e) {
+      // File doesn't exist, return empty array
+      requests = [];
+    }
+    res.json({ success: true, requests });
   } catch (e) {
     console.error("GET /admin/requests error:", e);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-app.post('/admin/requests/:email/approve', requireAdmin, async (req, res) => {
+app.post('/admin/requests/:email/approve', requireSuperAdmin, async (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email);
-    // create admin user if your schema has admin model
-    if (prisma.admin) {
-      await prisma.admin.create({ data: { email, password: '' } }).catch(()=>{});
+    
+    // Read requests from file
+    let requests = [];
+    try {
+      const content = await fs.readFile(PENDING_ADMINS_FILE, "utf8");
+      requests = JSON.parse(content);
+    } catch (e) {
+      return res.status(404).json({ success: false, message: "No pending requests found" });
     }
-    res.json({ success: true });
+
+    // Find the request
+    const request = requests.find(r => r.email === email);
+    if (!request) {
+      return res.status(404).json({ success: false, message: "Request not found" });
+    }
+
+    // Check if admin already exists
+    try {
+      const existingAdmin = await prisma.admin?.findUnique({ where: { email } });
+      if (existingAdmin) {
+        // Remove request even if admin exists
+        requests = requests.filter(r => r.email !== email);
+        await fs.writeFile(PENDING_ADMINS_FILE, JSON.stringify(requests, null, 2), "utf8");
+        return res.status(400).json({ success: false, message: "Admin with this email already exists" });
+      }
+    } catch (e) {
+      console.warn("Error checking existing admin:", e);
+    }
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(request.password, 10);
+
+    // Create admin in database
+    try {
+      await prisma.admin.create({
+        data: {
+          email: request.email,
+          password: passwordHash,
+          isSuperAdmin: false // New admins are not superadmin by default
+        }
+      });
+    } catch (e) {
+      console.error("Error creating admin:", e);
+      return res.status(500).json({ success: false, message: "Failed to create admin account" });
+    }
+
+    // Remove request from file
+    requests = requests.filter(r => r.email !== email);
+    await fs.writeFile(PENDING_ADMINS_FILE, JSON.stringify(requests, null, 2), "utf8");
+
+    res.json({ success: true, message: "Admin approved and created successfully" });
   } catch (e) {
     console.error("POST approve error:", e);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-app.post('/admin/requests/:email/reject', requireAdmin, async (req, res) => {
-  res.json({ success: true });
+app.post('/admin/requests/:email/reject', requireSuperAdmin, async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    
+    // Read requests from file
+    let requests = [];
+    try {
+      const content = await fs.readFile(PENDING_ADMINS_FILE, "utf8");
+      requests = JSON.parse(content);
+    } catch (e) {
+      return res.status(404).json({ success: false, message: "No pending requests found" });
+    }
+
+    // Remove request
+    requests = requests.filter(r => r.email !== email);
+    await fs.writeFile(PENDING_ADMINS_FILE, JSON.stringify(requests, null, 2), "utf8");
+
+    res.json({ success: true, message: "Request rejected" });
+  } catch (e) {
+    console.error("POST reject error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
 });
 
 // --- Duplicate admin API under /api/admin so frontend and deployed routes both work ---
@@ -488,9 +675,31 @@ app.post('/admin/requests/:email/reject', requireAdmin, async (req, res) => {
 
 const apiAdmin = express.Router();
 
-// logs
-apiAdmin.get('/me', requireAdmin, (req, res) => {
-  res.json({ success: true, email: req.adminEmail });
+// me endpoint
+apiAdmin.get('/me', async (req, res) => {
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : (req.query.token || null);
+  if (!token) return res.status(401).json({ success: false, message: "Missing token" });
+  const payload = verifyAdminToken(token);
+  if (!payload) return res.status(401).json({ success: false, message: "Invalid or expired token" });
+  
+  // Check if main admin
+  const ENV_EMAIL = process.env.MAIN_ADMIN_EMAIL;
+  if (ENV_EMAIL && payload.email === ENV_EMAIL) {
+    return res.json({ success: true, admin: { email: payload.email, isSuperAdmin: true } });
+  }
+  
+  // Check DB admin
+  try {
+    const admin = await prisma.admin?.findUnique({ where: { email: payload.email } });
+    if (admin) {
+      return res.json({ success: true, admin: { email: admin.email, isSuperAdmin: admin.isSuperAdmin || false } });
+    }
+  } catch (e) {
+    console.warn("Prisma admin lookup failed:", e.message || e);
+  }
+  
+  res.json({ success: true, admin: { email: payload.email, isSuperAdmin: payload.isSuperAdmin || false } });
 });
 
 apiAdmin.get('/logs', requireAdmin, async (req, res) => {
@@ -585,6 +794,98 @@ apiAdmin.put('/settings', requireAdmin, async (req, res) => {
     res.json({ success: true, settings: req.body || {} });
   } catch (e) {
     console.error("PUT /api/admin/settings error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// Admin request endpoints under /api/admin
+apiAdmin.get('/requests', requireSuperAdmin, async (req, res) => {
+  try {
+    let requests = [];
+    try {
+      const content = await fs.readFile(PENDING_ADMINS_FILE, "utf8");
+      requests = JSON.parse(content);
+    } catch (e) {
+      requests = [];
+    }
+    res.json({ success: true, requests });
+  } catch (e) {
+    console.error("GET /api/admin/requests error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+apiAdmin.post('/requests/:email/approve', requireSuperAdmin, async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    
+    let requests = [];
+    try {
+      const content = await fs.readFile(PENDING_ADMINS_FILE, "utf8");
+      requests = JSON.parse(content);
+    } catch (e) {
+      return res.status(404).json({ success: false, message: "No pending requests found" });
+    }
+
+    const request = requests.find(r => r.email === email);
+    if (!request) {
+      return res.status(404).json({ success: false, message: "Request not found" });
+    }
+
+    try {
+      const existingAdmin = await prisma.admin?.findUnique({ where: { email } });
+      if (existingAdmin) {
+        requests = requests.filter(r => r.email !== email);
+        await fs.writeFile(PENDING_ADMINS_FILE, JSON.stringify(requests, null, 2), "utf8");
+        return res.status(400).json({ success: false, message: "Admin with this email already exists" });
+      }
+    } catch (e) {
+      console.warn("Error checking existing admin:", e);
+    }
+
+    const passwordHash = await bcrypt.hash(request.password, 10);
+
+    try {
+      await prisma.admin.create({
+        data: {
+          email: request.email,
+          password: passwordHash,
+          isSuperAdmin: false
+        }
+      });
+    } catch (e) {
+      console.error("Error creating admin:", e);
+      return res.status(500).json({ success: false, message: "Failed to create admin account" });
+    }
+
+    requests = requests.filter(r => r.email !== email);
+    await fs.writeFile(PENDING_ADMINS_FILE, JSON.stringify(requests, null, 2), "utf8");
+
+    res.json({ success: true, message: "Admin approved and created successfully" });
+  } catch (e) {
+    console.error("POST /api/admin/requests/:email/approve error:", e);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+apiAdmin.post('/requests/:email/reject', requireSuperAdmin, async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    
+    let requests = [];
+    try {
+      const content = await fs.readFile(PENDING_ADMINS_FILE, "utf8");
+      requests = JSON.parse(content);
+    } catch (e) {
+      return res.status(404).json({ success: false, message: "No pending requests found" });
+    }
+
+    requests = requests.filter(r => r.email !== email);
+    await fs.writeFile(PENDING_ADMINS_FILE, JSON.stringify(requests, null, 2), "utf8");
+
+    res.json({ success: true, message: "Request rejected" });
+  } catch (e) {
+    console.error("POST /api/admin/requests/:email/reject error:", e);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });

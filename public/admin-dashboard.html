@@ -839,10 +839,12 @@
       // figure out if superadmin
       try {
         const me = await makeApiCall('/admin/me', 'GET');
-        if (me && me.admin && me.admin.role === 'superadmin') {
+        if (me && me.admin && me.admin.isSuperAdmin) {
           document.getElementById('approvalsTab').style.display = 'inline-block';
         }
-      } catch {}
+      } catch (e) {
+        console.error('Error checking admin status:', e);
+      }
       await Promise.all([loadLogs(), loadBuses()]);
     });
 
